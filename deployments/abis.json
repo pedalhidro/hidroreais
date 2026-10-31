@@ -2036,6 +2036,11 @@
     },
     {
       "inputs": [],
+      "name": "AlreadyClaimed",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "AlreadyJoined",
       "type": "error"
     },
@@ -2191,6 +2196,12 @@
         },
         {
           "indexed": false,
+          "internalType": "bool",
+          "name": "openToMembers",
+          "type": "bool"
+        },
+        {
+          "indexed": false,
           "internalType": "uint64",
           "name": "expiresAt",
           "type": "uint64"
@@ -2210,6 +2221,19 @@
         }
       ],
       "name": "MaxOpenPerMemberChanged",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "MemberImported",
       "type": "event"
     },
     {
@@ -2348,6 +2372,30 @@
           "type": "address"
         },
         {
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "claimed",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "key",
+          "type": "address"
+        },
+        {
           "internalType": "uint256",
           "name": "amount",
           "type": "uint256"
@@ -2384,9 +2432,27 @@
           "internalType": "uint64",
           "name": "expiresAt",
           "type": "uint64"
+        },
+        {
+          "internalType": "bool",
+          "name": "openToMembers",
+          "type": "bool"
         }
       ],
       "name": "createMinting",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address[]",
+          "name": "accounts",
+          "type": "address[]"
+        }
+      ],
+      "name": "importMembers",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2414,6 +2480,11 @@
         {
           "internalType": "bool",
           "name": "minting",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "openToMembers",
           "type": "bool"
         },
         {

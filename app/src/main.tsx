@@ -1,9 +1,11 @@
 import { render } from "preact";
 import { registerSW } from "virtual:pwa-register";
 import { useIdentity } from "./lib/identity";
+import { parseInvitePk } from "./lib/invites";
 import { useRoute } from "./lib/router";
 import { Backup } from "./views/Backup";
 import { Bank } from "./views/Bank";
+import { ClaimLink } from "./views/ClaimLink";
 import { Devices, LinkDevice } from "./views/Devices";
 import { External } from "./views/External";
 import { Home } from "./views/Home";
@@ -42,6 +44,11 @@ function App() {
       return <Receive identity={identity} />;
     case "/invite":
       return <Invite identity={identity} />;
+    case "/welcome": {
+      // A link opened by someone who already has an account: a bank link may still pay out.
+      const pk = parseInvitePk(route.query.get("i"));
+      return pk ? <ClaimLink identity={identity} pk={pk} /> : <Home identity={identity} />;
+    }
     case "/devices":
       return <Devices identity={identity} />;
     case "/link":

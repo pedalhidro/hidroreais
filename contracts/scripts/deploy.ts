@@ -14,6 +14,8 @@
  *   EPOCH_DAYS          default 7
  *   EPOCH_CAP           tokens per epoch, default ALLOWANCE * 250
  *   INVITES_PER_MEMBER  open invites a member can have at once, default 5
+ *   INVITES_ONLY=1      replace only the Invites contract, keeping the token and every account,
+ *                       name and passkey; the bank then imports the members (see the output)
  *
  * Writes ../deployments/<chainId>.json, which the PWA and the server read.
  */
@@ -80,7 +82,8 @@ if (!isLocal && !(await hasCode(ENTRY_POINT_V07))) {
 // 2. Safe 1.4.1 + 4337 + passkey contracts: reuse the official ones, deploy our own copies where missing.
 // Copies from an earlier deployment on this chain are reused, so a redeploy only adds our contracts.
 const file = new URL(`../../deployments/${chainId}.json`, import.meta.url);
-const previous: { aa?: Record<string, Address> } | null = await readFile(file, "utf8").then(JSON.parse, () => null);
+type Deployed = { bank?: Address; token?: { address: Address }; invites?: Address; previousInvites?: Address[]; aa?: Record<string, Address> };
+const previous: Deployed | null = await readFile(file, "utf8").then(JSON.parse, () => null);
 
 async function ensure(label: keyof typeof CANONICAL, deploy: () => Promise<Address>): Promise<Address> {
   const canonical = CANONICAL[label];
@@ -142,6 +145,33 @@ const aa = {
   ),
 };
 
+async function writeAbis() {
+  // Keep a copy of the ABIs next to the addresses for the app and server.
+  const abis: Record<string, unknown> = {};
+  for (const c of ["CommunityToken", "RecoveryModule", "MemberDirectory", "AllowanceMinter", "Invites"]) {
+    const a = JSON.parse(await readFile(new URL(`../artifacts/contracts/${c}.sol/${c}.json`, import.meta.url), "utf8"));
+    abis[c] = a.abi;
+  }
+  await writeFile(new URL("../../deployments/abis.json", import.meta.url), JSON.stringify(abis, null, 2) + "\n");
+}
+
+// INVITES_ONLY: swap just the Invites contract. Everything members have (account, coins, name,
+// passkeys) lives elsewhere and stays; only membership is carried over, by the bank.
+if (process.env.INVITES_ONLY) {
+  if (!previous?.token || !previous.invites) throw new Error(`INVITES_ONLY needs an existing deployments/${chainId}.json`);
+  if (!previous.bank || previous.bank.toLowerCase() !== bank.toLowerCase()) throw new Error("BANK_ADDRESS differs from the deployed bank");
+  const perMember = Number(process.env.INVITES_PER_MEMBER ?? "5");
+  const invites = await viem.deployContract("Invites", [previous.token.address, bank, perMember], fees);
+  console.log(`Invites           ${invites.address} (replaces ${previous.invites})`);
+  const out = { ...previous, aa, invites: invites.address, previousInvites: [...(previous.previousInvites ?? []), previous.invites] };
+  await writeFile(file, JSON.stringify(out, null, 2) + "\n");
+  await writeAbis();
+  console.log(`\nWrote ${file.pathname}`);
+  console.log("Next, from the bank console (#/bank → Ajustes): import the current members into the new Invites,");
+  console.log("let it mint, and stop the old one from minting. Then restart the server and redeploy the app.");
+  process.exit(0);
+}
+
 // 3. Our contracts.
 const startBlock = await publicClient.getBlockNumber();
 const me = deployer.account.address;
@@ -195,13 +225,4 @@ const out = {
 };
 await writeFile(file, JSON.stringify(out, null, 2) + "\n");
 console.log(`\nWrote ${file.pathname}`);
-
-// Keep a copy of the ABIs next to the addresses for the app and server.
-const abis: Record<string, unknown> = {};
-for (const c of ["CommunityToken", "RecoveryModule", "MemberDirectory", "AllowanceMinter", "Invites"]) {
-  const a = JSON.parse(
-    await readFile(new URL(`../artifacts/contracts/${c}.sol/${c}.json`, import.meta.url), "utf8"),
-  );
-  abis[c] = a.abi;
-}
-await writeFile(new URL("../../deployments/abis.json", import.meta.url), JSON.stringify(abis, null, 2) + "\n");
+await writeAbis();

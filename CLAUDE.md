@@ -66,8 +66,17 @@ afterwards; it is only a local dry run.
   (`#/welcome?i=…`) and in the creator's localStorage (`coin.invite-keys`). The claim
   signs (chainId, Invites, account), so a copied transaction can't redirect it. Member
   invites lock coins (0 is fine, `approve` is sponsored only towards Invites) and are
-  capped per member; bank invites mint per claim and can be multi-use. Expired member
-  invites are refunded by the server keeper (`refundExpiredInvites`).
+  capped per member; bank invites mint per claim and can be multi-use, for new accounts only
+  or open to existing members once each (`openToMembers`; members claim at `#/welcome?i=…`
+  while signed in, `ClaimLink`). Expired member invites are refunded by the server keeper
+  (`refundExpiredInvites`).
+- **Never drop accounts or passkeys; plan every change for migration.** Accounts (Safes),
+  coins (token), names and passkeys (MemberDirectory + Safe owners) must survive contract
+  changes. Replace a contract on its own and carry its state over rather than redeploying
+  everything. Invites is swapped with `INVITES_ONLY=1 npm run deploy:chiado`, then the bank
+  console's Ajustes → "troca do contrato de convites" (importMembers, grant MINTER to the new
+  one, revoke the old), then restart the server and redeploy the app. A full redeploy
+  changes RecoveryModule and so every member's account: only with the user's explicit OK.
 - **Backup wallets are plain owners.** A member can add a wallet (MetaMask, Rabby…) as an
   extra Safe owner from Aparelhos (`BackupWallet`); only a connected wallet, never a typed
   address. It rescues funds without devices or the bank at `#/backup`: the wallet calls

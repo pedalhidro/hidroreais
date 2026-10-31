@@ -476,9 +476,16 @@ contract InvitesTest is Test {
     }
 
     function _bankInvite(string memory label, uint256 amount, uint32 maxUses) internal returns (address key, uint256 pk) {
+        return _bankLink(label, amount, maxUses, false);
+    }
+
+    function _bankLink(string memory label, uint256 amount, uint32 maxUses, bool openToMembers)
+        internal
+        returns (address key, uint256 pk)
+    {
         (key, pk) = makeAddrAndKey(label);
         vm.prank(bank);
-        invites.createMinting(key, amount, maxUses, uint64(block.timestamp + 1 days));
+        invites.createMinting(key, amount, maxUses, uint64(block.timestamp + 1 days), openToMembers);
     }
 
     /// Alice joins with a bank invite that mints 10.
@@ -620,16 +627,16 @@ contract InvitesTest is Test {
     function test_durationAndKeyChecks() public {
         vm.startPrank(bank);
         vm.expectRevert(Invites.InvalidDuration.selector);
-        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp));
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp), false);
         vm.expectRevert(Invites.InvalidDuration.selector);
-        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 7 days + 1));
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 7 days + 1), false);
         vm.expectRevert(Invites.InvalidKey.selector);
-        invites.createMinting(address(0), 1, 1, uint64(block.timestamp + 1 hours));
+        invites.createMinting(address(0), 1, 1, uint64(block.timestamp + 1 hours), false);
         vm.expectRevert(Invites.InvalidUses.selector);
-        invites.createMinting(makeAddr("k1"), 1, 0, uint64(block.timestamp + 1 hours));
-        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 7 days));
+        invites.createMinting(makeAddr("k1"), 1, 0, uint64(block.timestamp + 1 hours), false);
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 7 days), false);
         vm.expectRevert(Invites.InvalidKey.selector);
-        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 1 hours));
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 1 hours), false);
         vm.stopPrank();
     }
 
@@ -637,9 +644,55 @@ contract InvitesTest is Test {
         _aliceJoins();
         vm.prank(alice);
         vm.expectRevert(Invites.OnlyBank.selector);
-        invites.createMinting(makeAddr("k"), 1, 1, uint64(block.timestamp + 1 hours));
+        invites.createMinting(makeAddr("k"), 1, 1, uint64(block.timestamp + 1 hours), false);
         vm.prank(alice);
         vm.expectRevert(Invites.OnlyBank.selector);
         invites.setMaxOpenPerMember(100);
+    }
+
+    function test_openLinkPaysMembersAndNewcomersOnceEach() public {
+        _aliceJoins(); // 10
+        (address key, uint256 pk) = _bankLink("drop", 5 ether, 10, true);
+        bytes memory forAlice = _sig(pk, alice);
+        bytes memory forBob = _sig(pk, bob);
+        assertTrue(invites.claimable(key, alice, forAlice));
+
+        vm.prank(alice); // an existing member
+        invites.claim(key, forAlice);
+        vm.prank(bob); // a newcomer, who joins with it
+        invites.claim(key, forBob);
+        assertEq(token.balanceOf(alice), 15 ether);
+        assertEq(token.balanceOf(bob), 5 ether);
+        assertTrue(invites.joined(bob));
+
+        assertFalse(invites.claimable(key, alice, forAlice));
+        vm.prank(alice);
+        vm.expectRevert(Invites.AlreadyClaimed.selector);
+        invites.claim(key, forAlice);
+    }
+
+    function test_importedMembersCanInviteAndAreKeptOutOfNewOnlyLinks() public {
+        address[] memory accounts = new address[](2);
+        accounts[0] = alice;
+        accounts[1] = carol;
+        vm.prank(alice);
+        vm.expectRevert(Invites.OnlyBank.selector);
+        invites.importMembers(accounts);
+
+        vm.expectEmit(address(invites));
+        emit Invites.MemberImported(alice);
+        vm.prank(bank);
+        invites.importMembers(accounts);
+        assertTrue(invites.joined(alice) && invites.joined(carol));
+
+        // Imported members can invite...
+        vm.prank(alice);
+        invites.create(makeAddr("gift"), 0, uint64(block.timestamp + 1 hours));
+        // ...and new-only links refuse them.
+        (address key, uint256 pk) = _bankInvite("newOnly", 5 ether, 10);
+        bytes memory sig = _sig(pk, carol);
+        vm.prank(carol);
+        vm.expectRevert(Invites.AlreadyJoined.selector);
+        invites.claim(key, sig);
     }
 }

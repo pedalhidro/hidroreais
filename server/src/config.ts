@@ -10,6 +10,8 @@ export type Deployment = {
   recoveryModule: Address;
   directory: Address;
   invites: Address;
+  /** Earlier Invites contracts, replaced with INVITES_ONLY; their links no longer work. */
+  previousInvites?: Address[];
   allowanceMinter?: Address;
   aa: {
     entryPoint: Address;

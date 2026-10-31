@@ -15,7 +15,7 @@ import {
 import { ExpiryPicker, InviteList, InviteShare } from "../components/invites";
 import { Notice, Screen } from "../components/ui";
 import { chain, currency, deployment, invitesAbi, p256Verifiers, recoveryAbi, tokenAbi } from "../config";
-import { api, recoveryDelay, signerFactoryAbi, signerFor, type InviteRecord, type Member } from "../lib/chain";
+import { api, publicClient, recoveryDelay, signerFactoryAbi, signerFor, type InviteRecord, type Member } from "../lib/chain";
 import { DEFAULT_EXPIRY, EXPIRY_PRESETS, expiryFromNow, newInvite } from "../lib/invites";
 import { friendlyError, parseAmount, short } from "../lib/format";
 import { decodeDevice } from "../lib/links";
@@ -70,7 +70,7 @@ export function Bank({ route }: { route: Route }) {
       {tab === "mint" && <MintForm members={members} onCalls={setCalls} />}
       {tab === "enforce" && <EnforceForm members={members} onCalls={setCalls} />}
       {tab === "recover" && <RecoverForm members={members} param={recoverParam} onCalls={setCalls} />}
-      {tab === "settings" && <SettingsForm onCalls={setCalls} />}
+      {tab === "settings" && <SettingsForm members={members} onCalls={setCalls} />}
       {calls.length > 0 && <Execute calls={calls} />}
     </Screen>
   );
@@ -122,7 +122,7 @@ function MintForm({ members, onCalls }: { members: Member[]; onCalls: (c: Call[]
         </label>
         <label class="check">
           <input type="radio" name="mint-mode" checked={mode === "invite"} onChange={() => setMode("invite")} />
-          Por link de convite: cada pessoa nova que entrar recebe
+          Por link de convite
         </label>
       </div>
       {mode === "direct" ? <DirectMint members={members} onCalls={onCalls} /> : <InviteMint onCalls={onCalls} />}
@@ -135,6 +135,7 @@ function InviteMint({ onCalls }: { onCalls: (c: Call[]) => void }) {
   const [amount, setAmount] = useState("");
   const [people, setPeople] = useState("1");
   const [seconds, setSeconds] = useState<number>(DEFAULT_EXPIRY);
+  const [openToMembers, setOpenToMembers] = useState(false);
   const [prepared, setPrepared] = useState<`0x${string}` | null>(null);
   const [mine, setMine] = useState<InviteRecord[]>([]);
   const [error, setError] = useState("");
@@ -155,8 +156,14 @@ function InviteMint({ onCalls }: { onCalls: (c: Call[]) => void }) {
       onCalls([
         {
           to: deployment.invites,
-          data: encodeFunctionData({ abi: invitesAbi, functionName: "createMinting", args: [key, value!, uses, expiresAt] }),
-          label: `Convite: ${amount} ${currency} para cada uma de até ${uses} pessoa${uses > 1 ? "s" : ""} novas`,
+          data: encodeFunctionData({
+            abi: invitesAbi,
+            functionName: "createMinting",
+            args: [key, value!, uses, expiresAt, openToMembers],
+          }),
+          label: `Link: ${amount} ${currency} para cada uma de até ${uses} ${
+            uses > 1 ? (openToMembers ? "contas" : "contas novas") : openToMembers ? "conta" : "conta nova"
+          }${openToMembers ? " (uma vez por conta)" : ""}`,
         },
       ]);
       setPrepared(pk);
@@ -177,6 +184,17 @@ function InviteMint({ onCalls }: { onCalls: (c: Call[]) => void }) {
           <input inputMode="numeric" value={people} onInput={(e) => setPeople(e.currentTarget.value)} />
         </label>
         <ExpiryPicker value={seconds} onChange={setSeconds} presets={EXPIRY_PRESETS} />
+        <div class="field" role="radiogroup" aria-label="Quem pode usar o link">
+          <span>Quem pode usar o link</span>
+          <label class="check">
+            <input type="radio" name="link-who" checked={!openToMembers} onChange={() => setOpenToMembers(false)} />
+            Só quem ainda não tem conta
+          </label>
+          <label class="check">
+            <input type="radio" name="link-who" checked={openToMembers} onChange={() => setOpenToMembers(true)} />
+            Qualquer pessoa, uma vez por conta (quem já tem conta também recebe)
+          </label>
+        </div>
         <button class="btn btn-primary" disabled={!ok}>
           Preparar convite
         </button>
@@ -396,7 +414,7 @@ function RecoverForm(props: { members: Member[]; param: string | null; onCalls: 
   );
 }
 
-function SettingsForm({ onCalls }: { onCalls: (c: Call[]) => void }) {
+function SettingsForm({ members, onCalls }: { members: Member[]; onCalls: (c: Call[]) => void }) {
   const [current, setCurrent] = useState<number | null>(null);
   const [hours, setHours] = useState("0");
   useEffect(() => {
@@ -449,7 +467,62 @@ function SettingsForm({ onCalls }: { onCalls: (c: Call[]) => void }) {
           Preparar ativação da mesada automática
         </button>
       )}
+      {deployment.previousInvites && deployment.previousInvites.length > 0 && (
+        <InvitesMigration members={members} minterRole={minterRole} onCalls={onCalls} />
+      )}
     </div>
+  );
+}
+
+/**
+ * After the Invites contract was replaced (deploy.ts INVITES_ONLY): carry every member over, let
+ * the new contract mint and stop the old one. Accounts, coins, names and passkeys never move.
+ */
+function InvitesMigration(props: { members: Member[]; minterRole: Hex; onCalls: (c: Call[]) => void }) {
+  const old = deployment.previousInvites!.at(-1)!;
+  const accounts = props.members.map((m) => getAddress(m.address));
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    const hasRole = (a: Address) =>
+      publicClient.readContract({ address: deployment.token.address, abi: tokenAbi, functionName: "hasRole", args: [props.minterRole, a] });
+    Promise.all([hasRole(deployment.invites), hasRole(old)])
+      .then(([granted, stillOld]) => setDone(Boolean(granted) && !stillOld))
+      .catch(() => {});
+  }, []);
+  if (done) return <p class="fine">Troca do contrato de convites concluída: o novo emite e o antigo ({short(old)}) não.</p>;
+  return (
+    <section class="stack">
+      <h2>Novo contrato de convites</h2>
+      <p class="fine">
+        O contrato de convites foi trocado. Leve os {accounts.length} membros para o novo, deixe ele emitir e desligue o
+        antigo ({short(old)}). Ninguém perde conta, saldo, nome ou passkey.
+      </p>
+      <button
+        class="btn btn-secondary"
+        disabled={accounts.length === 0}
+        onClick={() =>
+          props.onCalls([
+            {
+              to: deployment.invites,
+              data: encodeFunctionData({ abi: invitesAbi, functionName: "importMembers", args: [accounts] }),
+              label: `Levar ${accounts.length} membros para o novo contrato de convites`,
+            },
+            {
+              to: deployment.token.address,
+              data: encodeFunctionData({ abi: tokenAbi, functionName: "grantRole", args: [props.minterRole, deployment.invites] }),
+              label: "Autorizar o novo contrato de convites a emitir",
+            },
+            {
+              to: deployment.token.address,
+              data: encodeFunctionData({ abi: tokenAbi, functionName: "revokeRole", args: [props.minterRole, old] }),
+              label: "Desligar a emissão do contrato de convites antigo",
+            },
+          ])
+        }
+      >
+        Preparar a troca do contrato de convites
+      </button>
+    </section>
   );
 }
 

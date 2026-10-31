@@ -8,7 +8,7 @@ import { poll, publicClient, startIndexer } from "./indexer.js";
 import { PolicyError, checkCalls, checkDeployment, checkGas, findClaim, type RpcUserOperation } from "./policy.js";
 import { subscribe } from "./push.js";
 import { RelayError, executeDueRecoveries, refundExpiredInvites, relayTransfer, relayerAddress, type RelayRequest } from "./relay.js";
-import { consume, isMember, save, saveNow, state } from "./store.js";
+import { consume, isMember, save, saveNow, state, type InviteRecord } from "./store.js";
 import { refreshWallets, safeOfWallet, walletNames, walletsOf } from "./wallets.js";
 
 const app = new Hono();
@@ -196,7 +196,12 @@ app.get("/credential/:hash", (c) => {
 
 // Coins locked into or returned from an invite move through the Invites contract, and members'
 // backup wallets show as "name (carteira)".
-const names = () => ({ ...walletNames(), ...state.index.names, [deployment.invites.toLowerCase()]: "Convites" });
+const names = () => ({
+  ...walletNames(),
+  ...state.index.names,
+  ...Object.fromEntries((deployment.previousInvites ?? []).map((a) => [a.toLowerCase(), "Convites (antigo)"])),
+  [deployment.invites.toLowerCase()]: "Convites",
+});
 
 /** The member account a backup wallet belongs to (the app re-checks ownership on-chain). */
 app.get("/wallet/:address", (c) => {
@@ -210,15 +215,25 @@ app.get("/activity/:address", (c) => {
   return c.json({ names: names(), items, indexedBlock: state.index.lastBlock });
 });
 
+// Links from a replaced Invites contract can't be claimed anymore: report them as closed.
+const current = (inv: InviteRecord): InviteRecord =>
+  inv.contract === deployment.invites.toLowerCase() ? inv : { ...inv, closed: true };
+
 app.get("/invite/:key", (c) => {
-  const invite = state.index.invites[c.req.param("key").toLowerCase()] ?? null;
+  const found = state.index.invites[c.req.param("key").toLowerCase()];
+  const invite = found ? current(found) : null;
   const creatorName = invite ? (invite.minting ? "Banco central" : (state.index.names[invite.creator] ?? null)) : null;
   return c.json({ invite, creatorName });
 });
 
 app.get("/invites/by/:creator", (c) => {
   const creator = c.req.param("creator").toLowerCase();
-  return c.json(Object.values(state.index.invites).filter((x) => x.creator === creator).sort((x, y) => y.block - x.block));
+  return c.json(
+    Object.values(state.index.invites)
+      .filter((x) => x.creator === creator)
+      .map(current)
+      .sort((x, y) => y.block - x.block),
+  );
 });
 
 app.get("/recoveries/:safe", (c) => {

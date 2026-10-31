@@ -23,6 +23,7 @@ const controlTaken = ev("RecoveryModule", "ControlTaken");
 const inviteCreated = ev("Invites", "InviteCreated");
 const inviteClaimed = ev("Invites", "InviteClaimed");
 const inviteClosed = ev("Invites", "InviteClosed");
+const memberImported = ev("Invites", "MemberImported");
 
 type DecodedLog = Log<bigint, number, false, AbiEvent, true> & { args: Record<string, unknown>; eventName: string };
 
@@ -122,6 +123,8 @@ function handle(log: DecodedLog) {
         creator: String(a.creator).toLowerCase(),
         amount: (a.amount as bigint).toString(),
         minting: Boolean(a.minting),
+        openToMembers: Boolean(a.openToMembers),
+        contract: log.address.toLowerCase(),
         maxUses: Number(a.maxUses),
         uses: 0,
         expiresAt: Number(a.expiresAt),
@@ -142,6 +145,10 @@ function handle(log: DecodedLog) {
       if (!inv.minting) push(inv.creator, "Convite aceito", `${nameOf(account)} entrou no Hidroreais com o seu convite.`);
       break;
     }
+    case "MemberImported":
+      state.members[String(a.account).toLowerCase()] ??= { joinedAt: Date.now() };
+      saveNow();
+      break;
     case "InviteClosed": {
       const inv = state.index.invites[String(a.key).toLowerCase()];
       if (!inv) break;
@@ -162,7 +169,7 @@ async function fetchRange(fromBlock: bigint, toBlock: bigint) {
     publicClient.getLogs({ address: deployment.token.address, events: [transfer, confiscated, forced], fromBlock, toBlock, strict: true }),
     publicClient.getLogs({ address: deployment.directory, events: [nameSet, credentialLinked], fromBlock, toBlock, strict: true }),
     publicClient.getLogs({ address: deployment.recoveryModule, events: [recInitiated, recExecuted, recCancelled, controlTaken], fromBlock, toBlock, strict: true }),
-    publicClient.getLogs({ address: deployment.invites, events: [inviteCreated, inviteClaimed, inviteClosed], fromBlock, toBlock, strict: true }),
+    publicClient.getLogs({ address: deployment.invites, events: [inviteCreated, inviteClaimed, inviteClosed, memberImported], fromBlock, toBlock, strict: true }),
   ]);
   const all = [...token, ...directory, ...recovery, ...invites] as unknown as DecodedLog[];
   all.sort((x, y) => Number(x.blockNumber - y.blockNumber) || x.logIndex - y.logIndex);

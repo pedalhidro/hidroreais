@@ -55,6 +55,7 @@ export type InviteRecord = {
   creator: string;
   amount: string;
   minting: boolean;
+  openToMembers?: boolean;
   maxUses: number;
   uses: number;
   expiresAt: number;

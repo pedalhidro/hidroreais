@@ -64,7 +64,7 @@ export async function relayTransfer(r: RelayRequest): Promise<Hex> {
 export async function refundExpiredInvites() {
   const now = Math.floor(Date.now() / 1000);
   for (const inv of Object.values(state.index.invites)) {
-    if (inv.closed || inv.minting || inv.expiresAt > now) continue;
+    if (inv.closed || inv.minting || inv.expiresAt > now || inv.contract !== deployment.invites.toLowerCase()) continue;
     try {
       const { request } = await publicClient.simulateContract({
         account,

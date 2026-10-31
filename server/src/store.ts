@@ -32,6 +32,8 @@ export type InviteRecord = {
   creator: string;
   amount: string; // wei: locked (member invite) or minted per account (bank invite)
   minting: boolean;
+  openToMembers?: boolean; // bank link that existing members may claim too, once each
+  contract?: string; // the Invites contract it lives in; links from replaced contracts are dead
   maxUses: number;
   uses: number;
   expiresAt: number; // unix seconds

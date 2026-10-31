@@ -15,15 +15,20 @@ interface IMintableToken is IERC20 {
 ///         - Member invites lock coins (zero is fine) from the creator; the new account gets
 ///           them. Single use. The creator can cancel at any time, and once the invite has
 ///           expired anyone can return the coins to the creator.
-///         - Bank invites mint a fixed amount to each new account, up to `maxUses` accounts.
+///         - Bank invites mint a fixed amount per account, up to `maxUses` accounts. They are for
+///           new accounts only, or also open to existing members (`openToMembers`), once per account.
 ///         An invite is a throwaway key pair whose private key travels in the link. Claiming
 ///         needs the key's signature over (chain, this contract, claiming account), so a copied
 ///         transaction cannot redirect the coins. An account can join only once.
+///
+///         Membership lives here (`joined`). When this contract is replaced, the bank carries the
+///         members over with `importMembers`, so no account is dropped.
 contract Invites {
     struct Invite {
         address creator;
         uint64 expiresAt;
         bool minting; // bank invite: mint `amount` per claim instead of handing over locked coins
+        bool openToMembers; // bank invite only: existing members may claim it too, once each
         uint32 maxUses;
         uint32 uses; // == maxUses once the invite is used up, cancelled or refunded
         uint256 amount;
@@ -38,10 +43,18 @@ contract Invites {
     mapping(address key => Invite) public invites;
     mapping(address creator => uint32) public openInvites;
     mapping(address account => bool) public joined;
+    mapping(address key => mapping(address account => bool)) public claimed;
 
     event InviteCreated(
-        address indexed key, address indexed creator, uint256 amount, uint32 maxUses, bool minting, uint64 expiresAt
+        address indexed key,
+        address indexed creator,
+        uint256 amount,
+        uint32 maxUses,
+        bool minting,
+        bool openToMembers,
+        uint64 expiresAt
     );
+    event MemberImported(address indexed account);
     event InviteClaimed(address indexed key, address indexed account, uint256 amount);
     /// @notice Cancelled by its creator, or closed after expiry; `refunded` went back to the creator.
     event InviteClosed(address indexed key, uint256 refunded);
@@ -60,6 +73,7 @@ contract Invites {
     error InviteNotExpired();
     error InviteClosedAlready();
     error AlreadyJoined();
+    error AlreadyClaimed();
     error InvalidSignature();
 
     modifier onlyBank() {
@@ -80,6 +94,16 @@ contract Invites {
         emit BankChanged(newBank);
     }
 
+    /// @notice Carries members over from a previous Invites contract (or adds accounts that joined
+    ///         some other way). Members can then invite others and are kept out of new-only links.
+    function importMembers(address[] calldata accounts) external onlyBank {
+        for (uint256 i; i < accounts.length; ++i) {
+            if (joined[accounts[i]]) continue;
+            joined[accounts[i]] = true;
+            emit MemberImported(accounts[i]);
+        }
+    }
+
     function setMaxOpenPerMember(uint32 maxOpen) external onlyBank {
         maxOpenPerMember = maxOpen;
         emit MaxOpenPerMemberChanged(maxOpen);
@@ -89,22 +113,28 @@ contract Invites {
     function create(address key, uint256 amount, uint64 expiresAt) external {
         if (!joined[msg.sender]) revert OnlyMembers();
         if (openInvites[msg.sender] >= maxOpenPerMember) revert TooManyOpenInvites();
-        _store(key, Invite(msg.sender, expiresAt, false, 1, 0, amount));
+        _store(key, Invite(msg.sender, expiresAt, false, false, 1, 0, amount));
         openInvites[msg.sender] += 1;
         if (amount > 0) token.transferFrom(msg.sender, address(this), amount);
     }
 
-    /// @notice The bank invites up to `maxUses` people, minting `amount` to each when they join.
-    function createMinting(address key, uint256 amount, uint32 maxUses, uint64 expiresAt) external onlyBank {
+    /// @notice The bank mints `amount` to each of up to `maxUses` accounts that claim the link: new
+    ///         accounts as they join, and, if `openToMembers`, existing members too (once each).
+    function createMinting(address key, uint256 amount, uint32 maxUses, uint64 expiresAt, bool openToMembers)
+        external
+        onlyBank
+    {
         if (maxUses == 0) revert InvalidUses();
-        _store(key, Invite(msg.sender, expiresAt, true, maxUses, 0, amount));
+        _store(key, Invite(msg.sender, expiresAt, true, openToMembers, maxUses, 0, amount));
     }
 
-    /// @notice Called by the new account itself, in the batch that deploys it.
+    /// @notice Called by the claiming account itself: a new account in the batch that deploys it,
+    ///         or an existing member for a link that is open to members.
     function claim(address key, bytes calldata signature) external {
         Invite storage inv = invites[key];
         _checkClaim(inv, key, msg.sender, signature);
         joined[msg.sender] = true;
+        claimed[key][msg.sender] = true;
         inv.uses += 1;
         if (inv.minting) {
             token.mint(msg.sender, inv.amount);
@@ -153,14 +183,15 @@ contract Invites {
             revert InvalidDuration();
         }
         invites[key] = inv;
-        emit InviteCreated(key, inv.creator, inv.amount, inv.maxUses, inv.minting, inv.expiresAt);
+        emit InviteCreated(key, inv.creator, inv.amount, inv.maxUses, inv.minting, inv.openToMembers, inv.expiresAt);
     }
 
     function _checkClaim(Invite storage inv, address key, address account, bytes calldata signature) private view {
         if (inv.creator == address(0)) revert NoInvite();
         if (inv.uses >= inv.maxUses) revert InviteClosedAlready();
         if (block.timestamp >= inv.expiresAt) revert InviteExpired();
-        if (joined[account]) revert AlreadyJoined();
+        if (claimed[key][account]) revert AlreadyClaimed();
+        if (joined[account] && !inv.openToMembers) revert AlreadyJoined();
         (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(claimDigest(account), signature);
         if (err != ECDSA.RecoverError.NoError || signer != key) revert InvalidSignature();
     }

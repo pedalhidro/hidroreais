@@ -174,6 +174,9 @@ function InviteCard({ invite, creatorName }: { invite: InviteRecord | null; crea
         .
       </p>
       <p class="fine">Vale até {new Date(invite.expiresAt * 1000).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}.</p>
+      {invite.openToMembers && (
+        <p class="fine">Já tem conta? Entre com a sua passkey aqui embaixo e abra o link de novo para receber.</p>
+      )}
     </section>
   );
 }

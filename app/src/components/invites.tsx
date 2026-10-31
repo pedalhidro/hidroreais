@@ -16,7 +16,8 @@ export function inviteStatus(inv: InviteRecord): { open: boolean; text: string }
   if (inv.closed) return { open: false, text: expired ? "expirou" : "cancelado" };
   if (expired) return { open: false, text: "expirou" };
   const uses = inv.maxUses > 1 ? ` · ${inv.uses} de ${inv.maxUses} usados` : "";
-  return { open: true, text: `aberto até ${when(inv.expiresAt)}${uses}` };
+  const who = inv.openToMembers ? " · para qualquer conta" : "";
+  return { open: true, text: `aberto até ${when(inv.expiresAt)}${uses}${who}` };
 }
 
 /** The link for an invite created on this device, with QR, share and copy. */
