@@ -12,18 +12,20 @@ import { go, type Route } from "../lib/router";
 export function Pay({ identity, route }: { identity: Identity; route: Route }) {
   const toParam = route.query.get("to");
   const to = toParam && isAddress(toParam, { strict: false }) ? getAddress(toParam) : null;
-  const [members, setMembers] = useState<Member[]>([]);
+  // null until the directory has loaded, so the not-a-member warning doesn't flash.
+  const [members, setMembers] = useState<Member[] | null>(null);
   useEffect(() => {
     api.directory().then(setMembers).catch(() => setMembers([]));
   }, []);
 
-  if (!to) return <PickRecipient identity={identity} members={members} />;
-  const member = members.find((m) => sameAddress(m.address, to));
+  if (!to) return <PickRecipient identity={identity} members={members ?? []} />;
+  const member = members?.find((m) => sameAddress(m.address, to));
   return (
     <Confirm
       identity={identity}
       to={to}
       name={member?.name ?? null}
+      outsider={members !== null && !member}
       initialAmount={route.query.get("amount") ?? ""}
     />
   );
@@ -39,6 +41,9 @@ function PickRecipient({ identity, members }: { identity: Identity; members: Mem
       .filter((m) => !sameAddress(m.address, identity.safe))
       .filter((m) => !q || (m.name ?? "").toLowerCase().includes(q) || m.address.toLowerCase().includes(q));
   }, [members, query]);
+  // A pasted address that isn't a member: offer to pay it directly (the confirm screen warns).
+  const pasted = query.trim();
+  const outsider = isAddress(pasted, { strict: false }) && list.length === 0 ? getAddress(pasted) : null;
 
   if (scanning) {
     return (
@@ -64,7 +69,12 @@ function PickRecipient({ identity, members }: { identity: Identity; members: Mem
       {error && <Notice tone="error">{error}</Notice>}
       <label class="field">
         <span>Ou escolha quem vai receber</span>
-        <input type="search" value={query} placeholder="Buscar pelo nome" onInput={(e) => setQuery(e.currentTarget.value)} />
+        <input
+          type="search"
+          value={query}
+          placeholder="Buscar pelo nome ou colar um endereço 0x…"
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
       </label>
       <ul class="people">
         {list.map((m) => (
@@ -77,13 +87,23 @@ function PickRecipient({ identity, members }: { identity: Identity; members: Mem
             </a>
           </li>
         ))}
-        {list.length === 0 && <li class="empty">Ninguém encontrado com esse nome.</li>}
+        {outsider && (
+          <li>
+            <a href={`#/pay?to=${outsider}`}>
+              <span class="avatar" aria-hidden="true">
+                0x
+              </span>
+              <span>Pagar para o endereço {short(outsider)}</span>
+            </a>
+          </li>
+        )}
+        {list.length === 0 && !outsider && <li class="empty">Ninguém encontrado com esse nome.</li>}
       </ul>
     </Screen>
   );
 }
 
-function Confirm(props: { identity: Identity; to: Address; name: string | null; initialAmount: string }) {
+function Confirm(props: { identity: Identity; to: Address; name: string | null; outsider: boolean; initialAmount: string }) {
   const [amount, setAmount] = useState(props.initialAmount);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [busy, setBusy] = useState(false);
@@ -152,6 +172,12 @@ function Confirm(props: { identity: Identity; to: Address; name: string | null; 
         </label>
         {balance !== null && <p class="fine">Seu saldo: {coins(balance)} {currency}</p>}
         {self && <Notice>Este é o seu próprio código.</Notice>}
+        {props.outsider && !self && (
+          <Notice tone="error">
+            Este endereço não é de um membro do Hidroreais. Confira com quem vai receber: moedas enviadas para o endereço
+            errado não voltam.
+          </Notice>
+        )}
         <button class="btn btn-primary" disabled={busy || !value || self}>
           {busy ? "Confirmando…" : value ? `Pagar ${coins(value)} ${currency}` : "Pagar"}
         </button>
