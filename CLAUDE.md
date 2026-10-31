@@ -24,6 +24,7 @@ cd contracts && npm test                      # Solidity tests (forge-std style,
 cd contracts && BANK_ADDRESS=0x… npm run deploy:chiado   # also regenerates deployments/abis.json
 cd server && npm test && npm run typecheck    # policy tests (node:test via tsx)
 cd server && npm start                        # needs .env (see .env.example)
+deploy/cloudrun.sh update                     # ship the server to Cloud Run (see README)
 cd app && npm run dev                         # passkeys need https or localhost
 cd app && npm run build                       # tsc + vite build
 cd app && npx wrangler pages deploy dist --project-name hidroreais   # app → dimdim.pedalhidrografi.co
@@ -141,8 +142,10 @@ afterwards; it is only a local dry run.
 
 - Built: roadmap steps 1 to 3 (contracts, PWA MVP, devices and recovery).
 - Tests: 35 Solidity tests pass, and the server policy tests pass.
-- Live pilot on Chiado: app at dimdim.pedalhidrografi.co (Cloudflare Pages), server on a
-  workstation through a Cloudflare Tunnel (dimdim-api), temporary until it moves to a VPS.
+- Live pilot on Chiado: app at dimdim.pedalhidrografi.co (Cloudflare Pages), server on Cloud
+  Run (`deploy/cloudrun.sh`, scale to zero, `POST /admin/tick` every minute from Cloud
+  Scheduler) behind a Cloudflare Worker at dimdim-api. Ship server changes with
+  `deploy/cloudrun.sh update`, app changes with `wrangler pages deploy`.
 - Exercised on Chiado: deploy, passkey signup in Chrome, a bank invite (mint on claim) and
   a member invite with a gift, all through the server's own bundler. Linking a second
   device worked, but a payment from that device failed with AA24 (signature); not yet

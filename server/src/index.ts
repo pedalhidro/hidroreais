@@ -318,11 +318,30 @@ app.post("/admin/reindex", async (c) => {
   return c.json({ lastBlock: state.index.lastBlock });
 });
 
+/**
+ * One round of background work: index the chain (which sends pushes), run the keepers, refresh
+ * wallet labels, persist. On Cloud Run the instance sleeps between requests, so Cloud Scheduler
+ * calls this every minute; on an always-on host the intervals below do the same.
+ */
+app.post("/admin/tick", async (c) => {
+  await poll();
+  await Promise.allSettled([executeDueRecoveries(), refundExpiredInvites(), refreshWallets()]);
+  saveNow();
+  return c.json({ lastBlock: state.index.lastBlock });
+});
+
+// Catch up with the chain before answering, so a cold start never serves a stale index.
+await poll();
 startIndexer();
 setInterval(() => void executeDueRecoveries(), 60_000);
 setInterval(() => void refundExpiredInvites(), 60_000);
 void refreshWallets().catch((err) => console.warn("wallets:", (err as Error).message));
 setInterval(() => void refreshWallets().catch((err) => console.warn("wallets:", (err as Error).message)), 60_000);
+// Cloud Run stops idle instances with SIGTERM; write out anything still waiting in save().
+process.on("SIGTERM", () => {
+  saveNow();
+  process.exit(0);
+});
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Community coin server on :${info.port} (chain ${config.chainId}, relayer ${relayerAddress})`);
 });

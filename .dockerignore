@@ -1,0 +1,7 @@
+# Keep secrets, state and local builds out of images.
+**/node_modules
+**/.env
+**/data
+app
+contracts
+.git

@@ -1,0 +1,10 @@
+# dimdim-api.pedalhidrografi.co → Cloud Run. Deploy: npx wrangler deploy --config deploy/api-proxy/wrangler.toml
+# The custom domain needs the hostname free in DNS (no other record for dimdim-api).
+name = "hidroreais-api-proxy"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+routes = [{ pattern = "dimdim-api.pedalhidrografi.co", custom_domain = true }]
+
+[vars]
+# The Cloud Run service URL (stable for the service; see `gcloud run services describe`).
+ORIGIN_URL = "https://hidroreais-api-lrrinyjwxq-rj.a.run.app"

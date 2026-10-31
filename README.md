@@ -90,9 +90,13 @@ guardian recovery).
 - **App**: static build on Cloudflare Pages at `https://dimdim.pedalhidrografi.co`. Its build
   (`app/.env.production`) points at the server and gets a CSP that only allows the server and
   the chain RPC. This domain is final: passkeys are bound to it.
-- **Server**: runs on a machine of ours, published through a Cloudflare Tunnel as
-  `https://dimdim-api.pedalhidrografi.co` (one subdomain level, so Cloudflare's free certificate
-  covers it). Moving it to a VPS later only means repointing that hostname.
+- **Server**: Google Cloud Run (`hidroreais-api`, São Paulo), scaling to zero with at most one
+  instance. Its state (`store.json`) is on a Cloud Storage volume, its secrets in Secret
+  Manager, and Cloud Scheduler calls `POST /admin/tick` every minute for the background work
+  (indexing and push notifications, invite refunds, due recoveries, wallet labels). A
+  Cloudflare Worker (`deploy/api-proxy`) serves it as `https://dimdim-api.pedalhidrografi.co`,
+  since Cloud Run's domain mapping isn't offered in that region. The API host can move freely;
+  only the app's domain is tied to passkeys.
 
 ```bash
 # App
@@ -102,23 +106,18 @@ npx wrangler pages deploy dist --project-name hidroreais --branch main
 # then, once: Cloudflare dashboard → Workers & Pages → hidroreais → Custom domains
 #             → add dimdim.pedalhidrografi.co
 
-# Server (systemd user services; linger must be on)
-cp deploy/hidroreais-server.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now hidroreais-server
-
-# Tunnel (cloudflared in ~/.local/bin)
-cloudflared tunnel login                                      # once, pick pedalhidrografi.co
-cloudflared tunnel create hidroreais                          # prints the tunnel id
-cloudflared tunnel route dns hidroreais dimdim-api.pedalhidrografi.co
-cp deploy/cloudflared.yml ~/.cloudflared/hidroreais.yml       # fill in the tunnel id
-cp deploy/hidroreais-tunnel.service ~/.config/systemd/user/
-systemctl --user daemon-reload && systemctl --user enable --now hidroreais-tunnel
+# Server: first move (from server/.env and server/data/store.json), then releases
+deploy/cloudrun.sh prepare     # image, state bucket, secrets
+deploy/cloudrun.sh switch      # stops any local server, copies its state, deploys + scheduler
+deploy/cloudrun.sh domain      # Worker on dimdim-api (its DNS record must be free)
+deploy/cloudrun.sh update      # later: build and ship a new server version
 ```
 
-Set `ALLOWED_ORIGIN=https://dimdim.pedalhidrografi.co` in `server/.env` (add
-`,http://localhost:5173` to keep local development working). Back up `server/data/store.json`:
-most of it can be rebuilt from the chain, but push subscriptions and admin-registered wallets
-cannot.
+The server can still run on any always-on machine (`npm start`, or the systemd units in
+`deploy/`); its intervals do the same work as the scheduler. Never run two copies at once:
+they share the relayer key and the state. Set `ALLOWED_ORIGIN` (comma-separated) to the
+app's origin(s). Most of the state can be rebuilt from the chain, but push subscriptions and
+admin-registered wallets cannot: the bucket keeps them.
 
 ## Central bank operations
 
