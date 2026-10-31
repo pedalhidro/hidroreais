@@ -55,7 +55,10 @@ export async function sendUserOperation(rpcOp: RpcUserOperation & { paymaster?: 
   try {
     await publicClient.simulateContract({ account: relayerAccount, address: entryPoint, abi: entryPoint07Abi, functionName: "handleOps", args });
   } catch (err) {
-    throw new PolicyError(`user operation rejected: ${revertReason(err)}`);
+    const reason = revertReason(err);
+    // The whole operation, so a rejection can be replayed and picked apart (nothing in it is secret).
+    console.warn(`rejected user operation from ${rpcOp.sender}: ${reason}\n${JSON.stringify(rpcOp)}`);
+    throw new PolicyError(`user operation rejected: ${reason}`);
   }
   // The operation's own limits plus EntryPoint overhead; unused gas is not charged.
   const gas =

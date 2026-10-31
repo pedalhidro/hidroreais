@@ -58,6 +58,31 @@ export async function relayTransfer(r: RelayRequest): Promise<Hex> {
 }
 
 /**
+ * Keeper: closes expired member invites so the locked coins go back to their creators (and the
+ * creator's open-invite slot frees up). Anyone may call refund; the relayer pays the gas.
+ */
+export async function refundExpiredInvites() {
+  const now = Math.floor(Date.now() / 1000);
+  for (const inv of Object.values(state.index.invites)) {
+    if (inv.closed || inv.minting || inv.expiresAt > now) continue;
+    try {
+      const { request } = await publicClient.simulateContract({
+        account,
+        address: deployment.invites,
+        abi: abis.Invites,
+        functionName: "refund",
+        args: [getAddress(inv.key)],
+      });
+      const hash = await wallet.writeContract(request);
+      inv.closed = true; // the indexer fills in the refund once the event arrives
+      console.log(`refunded expired invite ${inv.key}: ${hash}`);
+    } catch (err) {
+      console.warn(`invite ${inv.key} not refundable: ${(err as Error).message.split("\n")[0]}`);
+    }
+  }
+}
+
+/**
  * Keeper: executes queued recoveries once their delay has passed (anyone may call
  * executeRecovery; the relayer pays the gas). Not needed while the delay is zero.
  */

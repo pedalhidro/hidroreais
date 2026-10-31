@@ -1,6 +1,6 @@
 import { isAddress, type Address, type Hex } from "viem";
 
-const base = () => `${location.origin}${location.pathname}`;
+export const base = () => `${location.origin}${location.pathname}`;
 
 export function paymentLink(to: Address, amount?: string) {
   const q = new URLSearchParams({ to });

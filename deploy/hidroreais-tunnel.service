@@ -1,0 +1,14 @@
+# User service for the Cloudflare Tunnel that publishes the server as dimdim-api.pedalhidrografi.co.
+#   cp deploy/hidroreais-tunnel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now hidroreais-tunnel
+[Unit]
+Description=Cloudflare Tunnel for the Hidroreais server
+After=network-online.target hidroreais-server.service
+
+[Service]
+ExecStart=%h/.local/bin/cloudflared tunnel --config %h/.cloudflared/hidroreais.yml run
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -48,6 +48,18 @@ export type RecoveryItem = {
   tx: string;
   block: number;
 };
+/** An invite as the server indexed it from the Invites contract. */
+export type InviteRecord = {
+  key: string;
+  creator: string;
+  amount: string;
+  minting: boolean;
+  maxUses: number;
+  uses: number;
+  expiresAt: number;
+  closed: boolean;
+  refunded?: string;
+};
 type CredentialRow = { credentialHash: string; safe: string; signer: string; x: string; y: string; block: number };
 
 export const api = {
@@ -57,9 +69,12 @@ export const api = {
   credentials: (hash: string) => get<CredentialRow[]>(`/credential/${hash}`),
   recoveries: (safe: Address) => get<RecoveryItem[]>(`/recoveries/${safe}`),
   recoveredBy: (owner: Address) => get<RecoveryItem[]>(`/recovered-by/${owner}`),
+  invite: (key: Address) => get<{ invite: InviteRecord | null; creatorName: string | null }>(`/invite/${key}`),
+  invitesBy: (creator: Address) => get<InviteRecord[]>(`/invites/by/${creator}`),
   transparency: () =>
     get<{
       names: Record<string, string>;
+      accounts: { address: string; balance: string }[];
       mints: ActivityItem[];
       enforcement: ActivityItem[];
       recoveries: RecoveryItem[];

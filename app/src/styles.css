@@ -352,12 +352,24 @@ p {
   text-align: left;
   min-height: 56px;
 }
-.people-compact li button {
-  min-height: 44px;
+/* Pickers (bank console): name chips, so it is clear they are tapped to choose. */
+.people-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.people li button.picked {
-  font-weight: 700;
-  color: var(--cobalt);
+.people-compact li button {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+}
+.people-compact li button.picked {
+  background: var(--cobalt);
+  border-color: var(--cobalt);
+  color: #fff;
 }
 .avatar {
   width: 40px;
@@ -535,4 +547,34 @@ p {
   margin: 0;
   font-weight: 700;
   text-align: right;
+}
+
+/* ---------------------------------------------------------------- invites */
+.invite-card {
+  padding: 14px 16px;
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+.invite-card p {
+  margin: 0;
+}
+.invite-card .fine {
+  margin-top: 4px;
+}
+.invite-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.invite-list .status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.invite-list .row {
+  flex-basis: 100%;
 }

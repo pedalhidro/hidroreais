@@ -11,6 +11,7 @@ import {CommunityToken} from "../CommunityToken.sol";
 import {AllowanceMinter, IMintable} from "../AllowanceMinter.sol";
 import {RecoveryModule} from "../RecoveryModule.sol";
 import {MemberDirectory} from "../MemberDirectory.sol";
+import {Invites, IMintableToken} from "../Invites.sol";
 
 contract CommunityTokenTest is Test {
     CommunityToken token;
@@ -449,5 +450,196 @@ contract MemberDirectoryTest is Test {
         emit MemberDirectory.CredentialLinked(h, safe, address(0xBEEF), 1, 2);
         vm.prank(safe);
         dir.linkCredential(h, address(0xBEEF), 1, 2);
+    }
+}
+
+contract InvitesTest is Test {
+    CommunityToken token;
+    Invites invites;
+    address bank = makeAddr("bank");
+    address alice = makeAddr("alice");
+    address bob = makeAddr("bob");
+    address carol = makeAddr("carol");
+
+    function setUp() public {
+        token = new CommunityToken("Hidroreais", "PHR", bank);
+        invites = new Invites(IMintableToken(address(token)), bank, 2);
+        bytes32 minter = token.MINTER_ROLE();
+        vm.prank(bank);
+        token.grantRole(minter, address(invites));
+        vm.warp(1_000_000);
+    }
+
+    function _sig(uint256 keyPk, address account) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(keyPk, invites.claimDigest(account));
+        return abi.encodePacked(r, s, v);
+    }
+
+    function _bankInvite(string memory label, uint256 amount, uint32 maxUses) internal returns (address key, uint256 pk) {
+        (key, pk) = makeAddrAndKey(label);
+        vm.prank(bank);
+        invites.createMinting(key, amount, maxUses, uint64(block.timestamp + 1 days));
+    }
+
+    /// Alice joins with a bank invite that mints 10.
+    function _aliceJoins() internal {
+        (address key, uint256 pk) = _bankInvite("aliceInvite", 10 ether, 1);
+        bytes memory sig = _sig(pk, alice); // before the prank: _sig makes a call of its own
+        vm.prank(alice);
+        invites.claim(key, sig);
+    }
+
+    function _memberInvite(string memory label, uint256 amount, uint64 duration) internal returns (address key, uint256 pk) {
+        (key, pk) = makeAddrAndKey(label);
+        vm.startPrank(alice);
+        token.approve(address(invites), amount);
+        invites.create(key, amount, uint64(block.timestamp) + duration);
+        vm.stopPrank();
+    }
+
+    function test_bankInviteMintsUpToMaxUses() public {
+        (address key, uint256 pk) = _bankInvite("event", 10 ether, 2);
+        bytes memory forAlice = _sig(pk, alice);
+        bytes memory forBob = _sig(pk, bob);
+        vm.expectEmit(address(invites));
+        emit Invites.InviteClaimed(key, alice, 10 ether);
+        vm.prank(alice);
+        invites.claim(key, forAlice);
+        vm.prank(bob);
+        invites.claim(key, forBob);
+        assertEq(token.balanceOf(alice), 10 ether);
+        assertEq(token.balanceOf(bob), 10 ether);
+        assertTrue(invites.joined(bob));
+
+        bytes memory sig = _sig(pk, carol);
+        vm.prank(carol);
+        vm.expectRevert(Invites.InviteClosedAlready.selector);
+        invites.claim(key, sig);
+    }
+
+    function test_memberInviteLocksAndHandsOver() public {
+        _aliceJoins();
+        (address key, uint256 pk) = _memberInvite("gift", 4 ether, 1 hours);
+        assertEq(token.balanceOf(alice), 6 ether);
+        assertEq(invites.openInvites(alice), 1);
+
+        bytes memory sig = _sig(pk, bob);
+        vm.prank(bob);
+        invites.claim(key, sig);
+        assertEq(token.balanceOf(bob), 4 ether);
+        assertEq(token.balanceOf(address(invites)), 0);
+        assertEq(invites.openInvites(alice), 0);
+    }
+
+    function test_signatureIsForOneAccount() public {
+        (address key, uint256 pk) = _bankInvite("event", 10 ether, 5);
+        bytes memory forBob = _sig(pk, bob);
+        assertTrue(invites.claimable(key, bob, forBob));
+        assertFalse(invites.claimable(key, carol, forBob));
+
+        // Carol copies Bob's signature: it does not work for her account.
+        vm.prank(carol);
+        vm.expectRevert(Invites.InvalidSignature.selector);
+        invites.claim(key, forBob);
+
+        (, uint256 otherPk) = makeAddrAndKey("someoneElse");
+        bytes memory wrongKey = _sig(otherPk, carol);
+        vm.prank(carol);
+        vm.expectRevert(Invites.InvalidSignature.selector);
+        invites.claim(key, wrongKey);
+    }
+
+    function test_membersCannotJoinAgain() public {
+        _aliceJoins();
+        (address key, uint256 pk) = _bankInvite("event", 10 ether, 5);
+        bytes memory sig = _sig(pk, alice);
+        assertFalse(invites.claimable(key, alice, sig));
+        vm.prank(alice);
+        vm.expectRevert(Invites.AlreadyJoined.selector);
+        invites.claim(key, sig);
+    }
+
+    function test_expiredInviteRefundsTheCreator() public {
+        _aliceJoins();
+        (address key, uint256 pk) = _memberInvite("gift", 4 ether, 6 hours);
+
+        vm.expectRevert(Invites.InviteNotExpired.selector);
+        invites.refund(key);
+
+        vm.warp(block.timestamp + 6 hours);
+        bytes memory sig = _sig(pk, bob);
+        vm.prank(bob);
+        vm.expectRevert(Invites.InviteExpired.selector);
+        invites.claim(key, sig);
+
+        vm.expectEmit(address(invites));
+        emit Invites.InviteClosed(key, 4 ether);
+        vm.prank(carol); // anyone, e.g. the server's keeper
+        invites.refund(key);
+        assertEq(token.balanceOf(alice), 10 ether);
+        assertEq(invites.openInvites(alice), 0);
+
+        vm.expectRevert(Invites.InviteClosedAlready.selector);
+        invites.refund(key);
+    }
+
+    function test_onlyTheCreatorCancels() public {
+        _aliceJoins();
+        (address key, uint256 pk) = _memberInvite("gift", 4 ether, 1 days);
+        vm.prank(bob);
+        vm.expectRevert(Invites.OnlyCreator.selector);
+        invites.cancel(key);
+
+        vm.prank(alice);
+        invites.cancel(key);
+        assertEq(token.balanceOf(alice), 10 ether);
+
+        bytes memory sig = _sig(pk, bob);
+        vm.prank(bob);
+        vm.expectRevert(Invites.InviteClosedAlready.selector);
+        invites.claim(key, sig);
+    }
+
+    function test_onlyMembersInviteAndOpenInvitesAreCapped() public {
+        vm.prank(bob);
+        vm.expectRevert(Invites.OnlyMembers.selector);
+        invites.create(makeAddr("k0"), 0, uint64(block.timestamp + 1 hours));
+
+        _aliceJoins();
+        (address first,) = _memberInvite("free1", 0, 1 hours); // a gift is optional
+        _memberInvite("free2", 0, 1 hours);
+        vm.prank(alice);
+        vm.expectRevert(Invites.TooManyOpenInvites.selector);
+        invites.create(makeAddr("free3"), 0, uint64(block.timestamp + 1 hours));
+
+        vm.prank(alice);
+        invites.cancel(first);
+        _memberInvite("free3", 0, 1 hours);
+    }
+
+    function test_durationAndKeyChecks() public {
+        vm.startPrank(bank);
+        vm.expectRevert(Invites.InvalidDuration.selector);
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp));
+        vm.expectRevert(Invites.InvalidDuration.selector);
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 7 days + 1));
+        vm.expectRevert(Invites.InvalidKey.selector);
+        invites.createMinting(address(0), 1, 1, uint64(block.timestamp + 1 hours));
+        vm.expectRevert(Invites.InvalidUses.selector);
+        invites.createMinting(makeAddr("k1"), 1, 0, uint64(block.timestamp + 1 hours));
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 7 days));
+        vm.expectRevert(Invites.InvalidKey.selector);
+        invites.createMinting(makeAddr("k1"), 1, 1, uint64(block.timestamp + 1 hours));
+        vm.stopPrank();
+    }
+
+    function test_onlyBankMakesMintingInvites() public {
+        _aliceJoins();
+        vm.prank(alice);
+        vm.expectRevert(Invites.OnlyBank.selector);
+        invites.createMinting(makeAddr("k"), 1, 1, uint64(block.timestamp + 1 hours));
+        vm.prank(alice);
+        vm.expectRevert(Invites.OnlyBank.selector);
+        invites.setMaxOpenPerMember(100);
     }
 }

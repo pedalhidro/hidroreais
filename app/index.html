@@ -10,8 +10,8 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="icon" href="/icon-192.png" />
     <!--
-      Strict CSP: only our own code runs. connect-src must list the RPC, the community server
-      and the bundler origin; tighten it to your real hosts when you deploy.
+      Strict CSP: only our own code runs. connect-src is loose here for `vite` dev; builds
+      replace it with the server and RPC origins from the env (see vite.config.ts).
     -->
     <meta
       http-equiv="Content-Security-Policy"

@@ -107,6 +107,7 @@ export function Home({ identity }: { identity: Identity }) {
       </section>
 
       <footer class="links">
+        <a href="#/invite">Convidar alguém</a>
         <a href="#/devices">Aparelhos e recuperação</a>
         <a href="#/transparency">Transparência do banco central</a>
         <a href="#/external">Usar outra carteira</a>

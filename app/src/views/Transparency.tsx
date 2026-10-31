@@ -6,6 +6,7 @@ import { coins, friendlyError, nameOr, short } from "../lib/format";
 
 type Data = {
   names: Record<string, string>;
+  accounts: { address: string; balance: string }[];
   mints: ActivityItem[];
   enforcement: ActivityItem[];
   recoveries: RecoveryItem[];
@@ -70,6 +71,20 @@ export function Transparency() {
         </div>
       </dl>
       {error && <Notice tone="error">{error}</Notice>}
+
+      <h2>Contas</h2>
+      <p class="fine">Quanto cada conta tem, segundo o registro da rede. “Convites” guarda os presentes de convites ainda abertos.</p>
+      <ul class="ledger">
+        {data?.accounts.map((a) => (
+          <li key={a.address}>
+            <a href={`${explorerUrl}/address/${a.address}`} target="_blank" rel="noreferrer">
+              <span>{nameOr(data.names, a.address)}</span>
+              <span class="amount">{coins(a.balance)}</span>
+            </a>
+          </li>
+        ))}
+        {data && data.accounts.length === 0 && <li class="empty">Nenhuma conta ainda.</li>}
+      </ul>
 
       <h2>Emissões</h2>
       <ul class="ledger">

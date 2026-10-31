@@ -1,0 +1,20 @@
+# User service for the community server (pilot on this machine).
+#   cp deploy/hidroreais-server.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now hidroreais-server
+#   journalctl --user -u hidroreais-server -f
+# Linger must be on (loginctl enable-linger) so it keeps running after logout.
+[Unit]
+Description=Hidroreais community server
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/repos/pedalhidro/hidroreais/server
+# Node comes from nvm; update the version in both lines when it changes. systemd needs the
+# full path in ExecStart (it ignores PATH there); PATH lets npm's `env node` find node.
+Environment=PATH=%h/.nvm/versions/node/v24.21.0/bin:/usr/bin:/bin
+ExecStart=%h/.nvm/versions/node/v24.21.0/bin/npm start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -34,7 +34,11 @@ export function friendlyError(err: unknown): string {
     raw += e instanceof Error ? `${e.name}: ${e.message}\n` : `${String(e)}\n`;
   }
   if (/NotAllowedError|cancel|abort/i.test(raw)) return "A confirmação com a passkey foi cancelada.";
-  if (/invite/i.test(raw)) return "Este convite não é válido ou já foi usado. Peça um novo convite.";
+  // Invites reverts: by name, or by selector when the bundler only passes the raw revert data.
+  if (/TooManyOpenInvites|0x12405a39/i.test(raw)) {
+    return "Você já tem convites abertos demais. Cancele um ou espere algum expirar.";
+  }
+  if (/invite/i.test(raw)) return "Este convite não vale mais: expirou, já foi usado ou é de outra conta. Peça um novo.";
   if (/daily limit/i.test(raw)) return "Você atingiu o limite diário de operações gratuitas. Tente amanhã.";
   if (/only community members/i.test(raw)) return "Esta conta ainda não foi aprovada como membro.";
   if (/transfer amount exceeds balance|ERC20InsufficientBalance/i.test(raw)) return "Saldo insuficiente.";

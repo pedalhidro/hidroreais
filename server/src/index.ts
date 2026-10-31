@@ -1,18 +1,19 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { randomBytes } from "node:crypto";
-import { getAddress, isAddress, isAddressEqual, toHex, type Address, type Hex } from "viem";
+import { getAddress, isAddress, isAddressEqual, toHex, zeroAddress, type Address, type Hex } from "viem";
 import { getUserOperationReceipt, sendUserOperation } from "./bundler.js";
-import { config, deployment } from "./config.js";
+import { abis, config, deployment } from "./config.js";
 import { poll, publicClient, startIndexer } from "./indexer.js";
-import { PolicyError, checkCalls, checkDeployment, checkGas, type RpcUserOperation } from "./policy.js";
+import { PolicyError, checkCalls, checkDeployment, checkGas, findClaim, type RpcUserOperation } from "./policy.js";
 import { subscribe } from "./push.js";
-import { RelayError, executeDueRecoveries, relayTransfer, relayerAddress, type RelayRequest } from "./relay.js";
+import { RelayError, executeDueRecoveries, refundExpiredInvites, relayTransfer, relayerAddress, type RelayRequest } from "./relay.js";
 import { consume, isMember, save, saveNow, state } from "./store.js";
 
 const app = new Hono();
-app.use("*", cors({ origin: config.allowedOrigin }));
+// ALLOWED_ORIGIN: "*" or a comma-separated list, e.g. the PWA's domain plus http://localhost:5173.
+const origins = config.allowedOrigin === "*" ? "*" : config.allowedOrigin.split(",").map((o) => o.trim());
+app.use("*", cors({ origin: origins }));
 
 // ------------------------------------------------------------------ JSON-RPC: bundler + paymaster
 const BUNDLER_METHODS = new Set([
@@ -75,26 +76,36 @@ async function currentGasPrice() {
   return gasPrice;
 }
 
-const isDeployed = async (a: string) => ((await publicClient.getCode({ address: a as Address })) ?? "0x") !== "0x";
-
-/** Turns an invite's pending signup into a member once the Safe exists on-chain. */
-async function settleInvite(code: string): Promise<void> {
-  const invite = state.invites[code];
-  if (!invite?.pending || invite.usedBy) return;
-  if (await isDeployed(invite.pending)) {
-    invite.usedBy = invite.pending;
-    state.members[invite.pending] ??= { joinedAt: Date.now(), invite: code };
-    delete invite.pending;
+/** Members joined through Invites; the chain answers when the indexer has not caught up yet. */
+async function isMemberNow(account: string): Promise<boolean> {
+  if (isMember(account)) return true;
+  const joined = (await publicClient.readContract({
+    address: deployment.invites,
+    abi: abis.Invites,
+    functionName: "joined",
+    args: [account as Address],
+  })) as boolean;
+  if (joined) {
+    state.members[account] ??= { joinedAt: Date.now() };
     saveNow();
   }
+  return joined;
 }
 
-async function settleAllInvites() {
-  for (const code of Object.keys(state.invites)) await settleInvite(code).catch(() => {});
+async function requireClaimable(op: RpcUserOperation, missing = "a valid invite is needed to create an account") {
+  const claim = findClaim(op);
+  if (!claim) throw new PolicyError(missing);
+  const claimable = await publicClient.readContract({
+    address: deployment.invites,
+    abi: abis.Invites,
+    functionName: "claimable",
+    args: [claim.key, op.sender, claim.signature],
+  });
+  if (!claimable) throw new PolicyError("this invite is not valid anymore: expired, used, or not for this account");
 }
 
 async function sponsor(req: RpcRequest) {
-  const [op, entryPoint, , context] = (req.params ?? []) as [RpcUserOperation, Address, string, { invite?: string } | null];
+  const [op, entryPoint] = (req.params ?? []) as [RpcUserOperation, Address];
   if (!op?.sender) throw new PolicyError("missing user operation");
   if (!isAddressEqual(entryPoint, deployment.aa.entryPoint)) throw new PolicyError("unsupported EntryPoint");
   const sender = op.sender.toLowerCase();
@@ -102,21 +113,13 @@ async function sponsor(req: RpcRequest) {
 
   if (op.factory) {
     checkDeployment(op);
-    const code = context?.invite?.trim();
-    if (!code || !state.invites[code]) throw new PolicyError("a valid invite is needed to create an account");
-    await settleInvite(code);
-    const invite = state.invites[code]!;
-    if (invite.usedBy) throw new PolicyError("this invite was already used");
-    // The invite is only spent once the Safe is actually deployed, so a cancelled
-    // passkey prompt or a failed first attempt does not burn it.
-    if (final) {
-      invite.pending = sender;
-      saveNow();
-    }
-  } else if (!isMember(sender)) {
-    const code = Object.keys(state.invites).find((c) => state.invites[c]!.pending === sender);
-    if (code) await settleInvite(code);
-    if (!isMember(sender)) throw new PolicyError("only community members are sponsored");
+    // The new account's first batch claims an invite. The claim runs in the transaction that
+    // creates the Safe, so the invite is spent only if the account really gets created.
+    await requireClaimable(op);
+  } else if (!(await isMemberNow(sender))) {
+    // A Safe can exist without membership if its claim reverted after deployment (the invite
+    // expired or ran out of uses in between). Let it retry with a claim that works now.
+    await requireClaimable(op, "only community members are sponsored");
   }
 
   checkCalls(op);
@@ -173,10 +176,24 @@ app.get("/credential/:hash", (c) => {
   return c.json(state.index.credentials.filter((x) => x.credentialHash === hash));
 });
 
+// Coins locked into or returned from an invite move through the Invites contract.
+const names = () => ({ ...state.index.names, [deployment.invites.toLowerCase()]: "Convites" });
+
 app.get("/activity/:address", (c) => {
   const a = c.req.param("address").toLowerCase();
   const items = state.index.activity.filter((x) => x.from === a || x.to === a).slice(-100).reverse();
-  return c.json({ names: state.index.names, items, indexedBlock: state.index.lastBlock });
+  return c.json({ names: names(), items, indexedBlock: state.index.lastBlock });
+});
+
+app.get("/invite/:key", (c) => {
+  const invite = state.index.invites[c.req.param("key").toLowerCase()] ?? null;
+  const creatorName = invite ? (invite.minting ? "Banco central" : (state.index.names[invite.creator] ?? null)) : null;
+  return c.json({ invite, creatorName });
+});
+
+app.get("/invites/by/:creator", (c) => {
+  const creator = c.req.param("creator").toLowerCase();
+  return c.json(Object.values(state.index.invites).filter((x) => x.creator === creator).sort((x, y) => y.block - x.block));
 });
 
 app.get("/recoveries/:safe", (c) => {
@@ -189,9 +206,26 @@ app.get("/recovered-by/:owner", (c) => {
   return c.json(state.index.recoveries.filter((r) => r.kind === "executed" && r.newOwner === owner));
 });
 
+/** Every member, and anything else holding coins, with its balance as indexed from the chain. */
+function balances() {
+  const total = new Map<string, bigint>(Object.keys(state.members).map((m) => [m, 0n]));
+  const add = (a: string, v: bigint) => total.set(a, (total.get(a) ?? 0n) + v);
+  for (const x of state.index.activity) {
+    const v = BigInt(x.value);
+    if (x.kind !== "mint") add(x.from, -v);
+    if (x.kind !== "confiscation") add(x.to, v);
+  }
+  total.delete(zeroAddress);
+  return [...total]
+    .filter(([a, v]) => v > 0n || state.members[a])
+    .sort(([, x], [, y]) => (y > x ? 1 : y < x ? -1 : 0))
+    .map(([address, v]) => ({ address, balance: v.toString() }));
+}
+
 app.get("/transparency", (c) =>
   c.json({
-    names: state.index.names,
+    accounts: balances(),
+    names: names(),
     mints: state.index.activity.filter((x) => x.kind === "mint").slice(-200).reverse(),
     enforcement: state.index.activity.filter((x) => x.kind === "confiscation" || x.kind === "forced").slice(-200).reverse(),
     recoveries: [...state.index.recoveries].reverse(),
@@ -224,18 +258,7 @@ app.use("/admin/*", async (c, next) => {
   await next();
 });
 
-app.post("/admin/invites", async (c) => {
-  const { count = 1, note } = (await c.req.json().catch(() => ({}))) as { count?: number; note?: string };
-  // Hex, not base64url: WhatsApp and Markdown linkifiers drop a trailing "_" or "-" from the link.
-  const codes = Array.from({ length: Math.min(Number(count), 200) }, () => randomBytes(8).toString("hex"));
-  for (const code of codes) state.invites[code] = { createdAt: Date.now(), note };
-  saveNow();
-  return c.json({ codes });
-});
-
-app.get("/admin/invites", (c) => c.json(state.invites));
-
-/** Register an existing Safe or an external wallet as a sponsored member. */
+/** Register an external wallet as a member (EIP-3009 relays). Safes join through Invites. */
 app.post("/admin/members", async (c) => {
   const { address } = await c.req.json();
   if (!isAddress(address, { strict: false })) return c.json({ error: "bad address" }, 400);
@@ -256,8 +279,8 @@ app.post("/admin/reindex", async (c) => {
 });
 
 startIndexer();
-setInterval(() => void settleAllInvites(), 15_000);
 setInterval(() => void executeDueRecoveries(), 60_000);
+setInterval(() => void refundExpiredInvites(), 60_000);
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Community coin server on :${info.port} (chain ${config.chainId}, relayer ${relayerAddress})`);
 });

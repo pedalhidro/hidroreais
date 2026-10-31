@@ -6,6 +6,7 @@ import { Bank } from "./views/Bank";
 import { Devices, LinkDevice } from "./views/Devices";
 import { External } from "./views/External";
 import { Home } from "./views/Home";
+import { Invite } from "./views/Invite";
 import { NewDevice } from "./views/NewDevice";
 import { Pay } from "./views/Pay";
 import { Receive } from "./views/Receive";
@@ -36,6 +37,8 @@ function App() {
       return <Pay identity={identity} route={route} />;
     case "/receive":
       return <Receive identity={identity} />;
+    case "/invite":
+      return <Invite identity={identity} />;
     case "/devices":
       return <Devices identity={identity} />;
     case "/link":

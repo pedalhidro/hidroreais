@@ -6,7 +6,7 @@
 import { createPublicClient, getAbiItem, http, zeroAddress, type AbiEvent, type Log } from "viem";
 import { abis, config, deployment } from "./config.js";
 import { notify } from "./push.js";
-import { save, state } from "./store.js";
+import { save, saveNow, state } from "./store.js";
 
 export const publicClient = createPublicClient({ chain: config.chain, transport: http(config.rpcUrl) });
 
@@ -20,11 +20,15 @@ const recCancelled = ev("RecoveryModule", "RecoveryCancelled");
 const confiscated = ev("CommunityToken", "Confiscated");
 const forced = ev("CommunityToken", "ForcedTransfer");
 const controlTaken = ev("RecoveryModule", "ControlTaken");
+const inviteCreated = ev("Invites", "InviteCreated");
+const inviteClaimed = ev("Invites", "InviteClaimed");
+const inviteClosed = ev("Invites", "InviteClosed");
 
 type DecodedLog = Log<bigint, number, false, AbiEvent, true> & { args: Record<string, unknown>; eventName: string };
 
 // Notifications are member-facing, so pt-BR numbers and the currency name ("10,5 Hidroreais").
 const currency = deployment.token.name;
+const invitesAddress = deployment.invites.toLowerCase();
 const fmt = (wei: bigint) => {
   const s = (Number(wei) / 1e18).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
   return `${s} ${currency}`;
@@ -52,8 +56,10 @@ function handle(log: DecodedLog) {
       const to = String(a.to).toLowerCase();
       const value = a.value as bigint;
       state.index.activity.push({ kind: from === zeroAddress ? "mint" : "transfer", from, to, value: value.toString(), tx, block });
+      // Coins moving in or out of Invites are announced by the invite events instead.
+      const viaInvites = from === invitesAddress || to === invitesAddress;
       if (from === zeroAddress) push(to, "Moedas novas", `O banco central te enviou ${fmt(value)}.`);
-      else push(to, "Pagamento recebido", `${nameOf(from)} te enviou ${fmt(value)}.`);
+      else if (!viaInvites) push(to, "Pagamento recebido", `${nameOf(from)} te enviou ${fmt(value)}.`);
       break;
     }
     case "Confiscated": {
@@ -109,6 +115,42 @@ function handle(log: DecodedLog) {
       push(safe, "Conta recuperada", "O banco central adicionou uma passkey nova à sua conta.");
       break;
     }
+    case "InviteCreated": {
+      const key = String(a.key).toLowerCase();
+      state.index.invites[key] = {
+        key,
+        creator: String(a.creator).toLowerCase(),
+        amount: (a.amount as bigint).toString(),
+        minting: Boolean(a.minting),
+        maxUses: Number(a.maxUses),
+        uses: 0,
+        expiresAt: Number(a.expiresAt),
+        closed: false,
+        tx,
+        block,
+      };
+      break;
+    }
+    case "InviteClaimed": {
+      const inv = state.index.invites[String(a.key).toLowerCase()];
+      const account = String(a.account).toLowerCase();
+      state.members[account] ??= { joinedAt: Date.now(), invite: String(a.key).toLowerCase() };
+      saveNow(); // membership decides sponsorship; keep it even if we crash before the next save
+      if (!inv) break;
+      inv.uses += 1;
+      if (inv.uses >= inv.maxUses) inv.closed = true;
+      if (!inv.minting) push(inv.creator, "Convite aceito", `${nameOf(account)} entrou no Hidroreais com o seu convite.`);
+      break;
+    }
+    case "InviteClosed": {
+      const inv = state.index.invites[String(a.key).toLowerCase()];
+      if (!inv) break;
+      const refunded = a.refunded as bigint;
+      inv.closed = true;
+      inv.refunded = refunded.toString();
+      if (refunded > 0n) push(inv.creator, "Convite encerrado", `${fmt(refunded)} voltaram para a sua conta.`);
+      break;
+    }
     case "RecoveryCancelled":
       state.index.recoveries.push({ kind: "cancelled", safe: String(a.safe).toLowerCase(), tx, block });
       break;
@@ -116,12 +158,13 @@ function handle(log: DecodedLog) {
 }
 
 async function fetchRange(fromBlock: bigint, toBlock: bigint) {
-  const [token, directory, recovery] = await Promise.all([
+  const [token, directory, recovery, invites] = await Promise.all([
     publicClient.getLogs({ address: deployment.token.address, events: [transfer, confiscated, forced], fromBlock, toBlock, strict: true }),
     publicClient.getLogs({ address: deployment.directory, events: [nameSet, credentialLinked], fromBlock, toBlock, strict: true }),
     publicClient.getLogs({ address: deployment.recoveryModule, events: [recInitiated, recExecuted, recCancelled, controlTaken], fromBlock, toBlock, strict: true }),
+    publicClient.getLogs({ address: deployment.invites, events: [inviteCreated, inviteClaimed, inviteClosed], fromBlock, toBlock, strict: true }),
   ]);
-  const all = [...token, ...directory, ...recovery] as unknown as DecodedLog[];
+  const all = [...token, ...directory, ...recovery, ...invites] as unknown as DecodedLog[];
   all.sort((x, y) => Number(x.blockNumber - y.blockNumber) || x.logIndex - y.logIndex);
   return all;
 }

@@ -12,9 +12,11 @@ import {
   type EIP1193Provider,
   type Hex,
 } from "viem";
+import { ExpiryPicker, InviteList, InviteShare } from "../components/invites";
 import { Notice, Screen } from "../components/ui";
-import { chain, deployment, p256Verifiers, recoveryAbi, currency, tokenAbi } from "../config";
-import { api, recoveryDelay, signerFactoryAbi, signerFor, type Member } from "../lib/chain";
+import { chain, currency, deployment, invitesAbi, p256Verifiers, recoveryAbi, tokenAbi } from "../config";
+import { api, recoveryDelay, signerFactoryAbi, signerFor, type InviteRecord, type Member } from "../lib/chain";
+import { DEFAULT_EXPIRY, EXPIRY_PRESETS, expiryFromNow, newInvite } from "../lib/invites";
 import { friendlyError, parseAmount, short } from "../lib/format";
 import { decodeDevice } from "../lib/links";
 import { fromPublicKey } from "../lib/passkey";
@@ -85,10 +87,16 @@ function MemberPicker(props: { members: Member[]; value: string; onChange: (a: s
     <div class="field">
       <span>{props.label}</span>
       <input type="search" placeholder="Buscar membro pelo nome" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      <p class="fine">{selected ? `Escolhido: ${selected.name ?? short(selected.address)}` : "Toque em um nome para escolher."}</p>
       <ul class="people people-compact">
         {list.map((m) => (
           <li key={m.address}>
-            <button type="button" class={m.address === selected?.address ? "picked" : ""} onClick={() => props.onChange(m.address)}>
+            <button
+              type="button"
+              aria-pressed={m.address === selected?.address}
+              class={m.address === selected?.address ? "picked" : ""}
+              onClick={() => props.onChange(m.address)}
+            >
               {m.name ?? short(m.address)}
             </button>
           </li>
@@ -104,6 +112,100 @@ function MemberPicker(props: { members: Member[]; value: string; onChange: (a: s
 }
 
 function MintForm({ members, onCalls }: { members: Member[]; onCalls: (c: Call[]) => void }) {
+  const [mode, setMode] = useState<"direct" | "invite">("direct");
+  return (
+    <div class="stack">
+      <div class="stack stack-tight" role="radiogroup" aria-label="Como emitir">
+        <label class="check">
+          <input type="radio" name="mint-mode" checked={mode === "direct"} onChange={() => setMode("direct")} />
+          Direto para um membro
+        </label>
+        <label class="check">
+          <input type="radio" name="mint-mode" checked={mode === "invite"} onChange={() => setMode("invite")} />
+          Por link de convite: cada pessoa nova que entrar recebe
+        </label>
+      </div>
+      {mode === "direct" ? <DirectMint members={members} onCalls={onCalls} /> : <InviteMint onCalls={onCalls} />}
+    </div>
+  );
+}
+
+/** Bank invites mint a fixed amount to each new account that joins through the link. */
+function InviteMint({ onCalls }: { onCalls: (c: Call[]) => void }) {
+  const [amount, setAmount] = useState("");
+  const [people, setPeople] = useState("1");
+  const [seconds, setSeconds] = useState<number>(DEFAULT_EXPIRY);
+  const [prepared, setPrepared] = useState<`0x${string}` | null>(null);
+  const [mine, setMine] = useState<InviteRecord[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.invitesBy(deployment.bank).then(setMine).catch(() => {});
+  }, []);
+  const value = parseAmount(amount);
+  const uses = Number(people);
+  const ok = !!value && Number.isInteger(uses) && uses >= 1 && uses <= 10_000;
+
+  async function prepare(e: Event) {
+    e.preventDefault();
+    if (!ok) return;
+    setError("");
+    try {
+      const { pk, key } = newInvite(); // the link's key stays in this browser
+      const expiresAt = await expiryFromNow(seconds);
+      onCalls([
+        {
+          to: deployment.invites,
+          data: encodeFunctionData({ abi: invitesAbi, functionName: "createMinting", args: [key, value!, uses, expiresAt] }),
+          label: `Convite: ${amount} ${currency} para cada uma de até ${uses} pessoa${uses > 1 ? "s" : ""} novas`,
+        },
+      ]);
+      setPrepared(pk);
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  return (
+    <div class="stack">
+      <form class="stack" onSubmit={prepare}>
+        <label class="field">
+          <span>{currency} para cada pessoa</span>
+          <input inputMode="decimal" value={amount} onInput={(e) => setAmount(e.currentTarget.value)} />
+        </label>
+        <label class="field">
+          <span>Quantas pessoas podem usar o link</span>
+          <input inputMode="numeric" value={people} onInput={(e) => setPeople(e.currentTarget.value)} />
+        </label>
+        <ExpiryPicker value={seconds} onChange={setSeconds} presets={EXPIRY_PRESETS} />
+        <button class="btn btn-primary" disabled={!ok}>
+          Preparar convite
+        </button>
+      </form>
+      {error && <Notice tone="error">{error}</Notice>}
+      {prepared && (
+        <>
+          <Notice>O link só funciona depois que a operação abaixo for enviada e confirmada.</Notice>
+          <InviteShare pk={prepared} />
+        </>
+      )}
+      <h2>Convites do banco</h2>
+      <InviteList
+        invites={mine}
+        onCancel={(key) =>
+          onCalls([
+            {
+              to: deployment.invites,
+              data: encodeFunctionData({ abi: invitesAbi, functionName: "cancel", args: [getAddress(key)] }),
+              label: `Cancelar o convite ${short(key)}`,
+            },
+          ])
+        }
+      />
+    </div>
+  );
+}
+
+function DirectMint({ members, onCalls }: { members: Member[]; onCalls: (c: Call[]) => void }) {
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const value = parseAmount(amount);

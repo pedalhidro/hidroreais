@@ -15,7 +15,7 @@ deployments/  Addresses + ABIs written by the deploy script, read by app and ser
 
 | Step | Built |
 | --- | --- |
-| 1. Contracts | `CommunityToken` (ERC-20, `MINTER_ROLE`, `ENFORCER_ROLE` for confiscation and forced transfers, EIP-2612, EIP-3009), `RecoveryModule` (central bank as guardian; delay 0 = instant while testing; `takeControl` for immediate takeovers), `MemberDirectory` (names + passkey lookup), `AllowanceMinter` (example policy minter). 26 Solidity tests. |
+| 1. Contracts | `CommunityToken` (ERC-20, `MINTER_ROLE`, `ENFORCER_ROLE` for confiscation and forced transfers, EIP-2612, EIP-3009), `RecoveryModule` (central bank as guardian; delay 0 = instant while testing; `takeControl` for immediate takeovers), `MemberDirectory` (names + passkey lookup), `Invites` (member invites that lock a gift, bank invites that mint per newcomer), `AllowanceMinter` (example policy minter). 35 Solidity tests. |
 | 2. PWA MVP | Invite → passkey → Safe account, pay by name / QR / link, receive QR + link, activity, gas sponsored for everything, external-wallet sends via EIP-3009 relayer. |
 | 3. Devices + recovery | Link a new device by QR (WhatsApp Web style), remove devices, central bank recovery console (Safe Transaction Builder export or direct send), cancel-during-delay banner, transparency page, Web Push for payments and recoveries. |
 
@@ -36,8 +36,9 @@ Not built yet: the WhatsApp bot, a self-hosted paymaster.
 - **Sponsorship.** The app talks to the server's `/rpc`, never to the provider. The server
   forwards to Pimlico only for allowed calls: token transfers, directory updates, adding or
   removing owners, creating passkey signers, cancelling a recovery, and claiming the allowance.
-  New accounts need an invite code; it is spent only once the new Safe is actually deployed,
-  so a cancelled Face ID prompt does not burn it. New Safes must match the app's exact setup
+  New accounts need an invite: a link from any member (who can lock a gift in it) or from the
+  bank (which mints a set amount to each newcomer, for one or many people). The claim runs in
+  the transaction that creates the Safe, so a cancelled Face ID prompt does not burn it. New Safes must match the app's exact setup
   (one passkey owner, the 4337 module, the RecoveryModule). Gas prices and limits are capped,
   and per-member daily limits apply.
 - **Bundling.** The server submits sponsored operations to the EntryPoint itself, from the
@@ -76,13 +77,48 @@ cd ../app && npm install
 cp .env.example .env    # VITE_CHAIN_ID, VITE_SERVER_URL
 npm run dev             # passkeys need https or localhost
 
-# 4. Invite yourself
-cd ../server && ADMIN_TOKEN=... npm run invite -- 3 "pilot"
+# 4. Invite yourself: open #/bank → Emitir → "Por link de convite", send it from the bank
+#    wallet, then open the link it shows.
 ```
 
 Passkeys require a secure origin and are bound to the domain: test on `localhost`, then deploy
 the app to the long-lived domain you will keep (moving domains means re-linking everyone through
 guardian recovery).
+
+## Pilot deployment (dimdim.pedalhidrografi.co)
+
+- **App**: static build on Cloudflare Pages at `https://dimdim.pedalhidrografi.co`. Its build
+  (`app/.env.production`) points at the server and gets a CSP that only allows the server and
+  the chain RPC. This domain is final: passkeys are bound to it.
+- **Server**: runs on a machine of ours, published through a Cloudflare Tunnel as
+  `https://dimdim-api.pedalhidrografi.co` (one subdomain level, so Cloudflare's free certificate
+  covers it). Moving it to a VPS later only means repointing that hostname.
+
+```bash
+# App
+cd app && npm run build
+npx wrangler login                                            # once, opens the browser
+npx wrangler pages deploy dist --project-name hidroreais --branch main
+# then, once: Cloudflare dashboard → Workers & Pages → hidroreais → Custom domains
+#             → add dimdim.pedalhidrografi.co
+
+# Server (systemd user services; linger must be on)
+cp deploy/hidroreais-server.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now hidroreais-server
+
+# Tunnel (cloudflared in ~/.local/bin)
+cloudflared tunnel login                                      # once, pick pedalhidrografi.co
+cloudflared tunnel create hidroreais                          # prints the tunnel id
+cloudflared tunnel route dns hidroreais dimdim-api.pedalhidrografi.co
+cp deploy/cloudflared.yml ~/.cloudflared/hidroreais.yml       # fill in the tunnel id
+cp deploy/hidroreais-tunnel.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now hidroreais-tunnel
+```
+
+Set `ALLOWED_ORIGIN=https://dimdim.pedalhidrografi.co` in `server/.env` (add
+`,http://localhost:5173` to keep local development working). Back up `server/data/store.json`:
+most of it can be rebuilt from the chain, but push subscriptions and admin-registered wallets
+cannot.
 
 ## Central bank operations
 

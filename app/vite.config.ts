@@ -1,9 +1,20 @@
 import preact from "@preact/preset-vite";
-import { defineConfig } from "vite";
+import { gnosis, gnosisChiado } from "viem/chains";
+import { defineConfig, loadEnv } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-export default defineConfig({
-  server: { fs: { allow: [".."] } }, // the app reads ../deployments
+/** The origins the built app may connect to: the community server and the chain RPC. */
+function connectOrigins(mode: string): string {
+  const env = loadEnv(mode, process.cwd());
+  const chain = Number(env.VITE_CHAIN_ID ?? 10200) === 100 ? gnosis : gnosisChiado;
+  const urls = [env.VITE_SERVER_URL ?? "http://localhost:8787", env.VITE_RPC_URL || chain.rpcUrls.default.http[0]];
+  return urls.map((u) => new URL(u).origin).join(" ");
+}
+
+export default defineConfig(({ mode }) => ({
+  // fs: the app reads ../deployments. allowedHosts: phones reach the dev server through
+  // `tailscale serve` (https, so passkeys work) at <machine>.<tailnet>.ts.net.
+  server: { fs: { allow: [".."] }, allowedHosts: [".ts.net"] },
   plugins: [
     // The dev server injects CSS and the HMR preamble inline, which the production CSP in
     // index.html blocks. Relax it for `vite` only; builds keep the strict policy.
@@ -12,6 +23,13 @@ export default defineConfig({
       apply: "serve",
       transformIndexHtml: (html) =>
         html.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'").replace("style-src 'self'", "style-src 'self' 'unsafe-inline'"),
+    },
+    // Builds may only talk to the configured server and RPC (app/.env.production).
+    {
+      name: "build-csp",
+      apply: "build",
+      transformIndexHtml: (html) =>
+        html.replace("connect-src 'self' https: http://localhost:*", `connect-src 'self' ${connectOrigins(mode)}`),
     },
     preact(),
     VitePWA({
@@ -39,4 +57,4 @@ export default defineConfig({
       },
     }),
   ],
-});
+}));

@@ -4,13 +4,16 @@
  *   BANK_ADDRESS=0x... npx hardhat run scripts/deploy.ts --network chiado
  *
  * Env:
- *   BANK_ADDRESS        central bank Safe (or, while testing, an EOA). Gets admin + MINTER_ROLE
- *                       on the token and is the recovery guardian.
+ *   BANK_ADDRESS        central bank Safe (or, while testing, an EOA). Gets admin, MINTER_ROLE and
+ *                       ENFORCER_ROLE on the token, and is the recovery guardian and invites bank.
+ *                       The deployer holds the token roles only while wiring up Invites, then
+ *                       renounces them.
  *   TOKEN_NAME/SYMBOL   default "Hidroreais" / "PHR"
  *   RECOVERY_DELAY      seconds, default 0 (instant recovery while testing)
  *   ALLOWANCE           optional, tokens per member per epoch for the example AllowanceMinter
  *   EPOCH_DAYS          default 7
  *   EPOCH_CAP           tokens per epoch, default ALLOWANCE * 250
+ *   INVITES_PER_MEMBER  open invites a member can have at once, default 5
  *
  * Writes ../deployments/<chainId>.json, which the PWA and the server read.
  */
@@ -56,9 +59,17 @@ const name = process.env.TOKEN_NAME ?? "Hidroreais";
 const symbol = process.env.TOKEN_SYMBOL ?? "PHR";
 const recoveryDelay = BigInt(process.env.RECOVERY_DELAY ?? "0");
 
+// Fees from the median tip of recent blocks. Chiado's suggested tip jumps between 0 and 1 gwei
+// (base fee ~7 wei), and one such reading once priced a whole deploy 10^8 times too high.
+const history = await publicClient.getFeeHistory({ blockCount: 20, rewardPercentiles: [50] });
+const tips = (history.reward ?? []).map((r) => r[0]).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+const tip = tips[Math.floor(tips.length / 2)] ?? 0n;
+const fees = { maxPriorityFeePerGas: tip, maxFeePerGas: history.baseFeePerGas.at(-1)! * 2n + tip };
+
 const hasCode = async (a: Address) => ((await publicClient.getCode({ address: a })) ?? "0x") !== "0x";
 
 console.log(`Chain ${chainId}, deployer ${deployer.account.address}, bank ${bank}`);
+console.log(`Fees: max ${fees.maxFeePerGas} wei, tip ${fees.maxPriorityFeePerGas} wei`);
 
 // 1. The EntryPoint must already exist (skipped for a local dry run on 31337).
 const isLocal = chainId === 31337;
@@ -84,7 +95,7 @@ async function ensure(label: keyof typeof CANONICAL, deploy: () => Promise<Addre
 }
 async function deployArtifact(path: string, args: unknown[] = []): Promise<Address> {
   const { abi, bytecode } = artifact(path);
-  const hash = await deployer.deployContract({ abi, bytecode, args } as never);
+  const hash = await deployer.deployContract({ abi, bytecode, args, ...fees } as never);
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (!receipt.contractAddress) throw new Error(`deploy of ${path} failed`);
   return receipt.contractAddress;
@@ -133,11 +144,31 @@ const aa = {
 
 // 3. Our contracts.
 const startBlock = await publicClient.getBlockNumber();
-const token = await viem.deployContract("CommunityToken", [name, symbol, bank]);
+const me = deployer.account.address;
+const mined = (hash: Hex) => publicClient.waitForTransactionReceipt({ hash });
+// The deployer starts as token admin so it can let Invites mint, then hands everything to the bank.
+const token = await viem.deployContract("CommunityToken", [name, symbol, me], fees);
 console.log(`CommunityToken    ${token.address}`);
-const recovery = await viem.deployContract("RecoveryModule", [bank, recoveryDelay]);
+const invitesPerMember = Number(process.env.INVITES_PER_MEMBER ?? "5");
+const invites = await viem.deployContract("Invites", [token.address, bank, invitesPerMember], fees);
+console.log(`Invites           ${invites.address} (${invitesPerMember} open invites per member)`);
+
+const [admin, minter, enforcer] = await Promise.all([
+  token.read.DEFAULT_ADMIN_ROLE(),
+  token.read.MINTER_ROLE(),
+  token.read.ENFORCER_ROLE(),
+]);
+await mined(await token.write.grantRole([minter, invites.address], fees));
+for (const role of [admin, minter, enforcer]) await mined(await token.write.grantRole([role, bank], fees));
+for (const role of [minter, enforcer, admin]) await mined(await token.write.renounceRole([role, me], fees));
+for (const role of [admin, minter, enforcer]) {
+  if (await token.read.hasRole([role, me])) throw new Error("deployer still holds a token role");
+  if (!(await token.read.hasRole([role, bank]))) throw new Error("bank is missing a token role");
+}
+console.log("  token roles: bank is admin, minter and enforcer; Invites can mint; deployer has none");
+const recovery = await viem.deployContract("RecoveryModule", [bank, recoveryDelay], fees);
 console.log(`RecoveryModule    ${recovery.address} (delay ${recoveryDelay}s)`);
-const directory = await viem.deployContract("MemberDirectory", []);
+const directory = await viem.deployContract("MemberDirectory", [], fees);
 console.log(`MemberDirectory   ${directory.address}`);
 
 let allowanceMinter: Address | undefined;
@@ -145,7 +176,7 @@ if (process.env.ALLOWANCE) {
   const allowance = parseEther(process.env.ALLOWANCE);
   const epoch = BigInt(Number(process.env.EPOCH_DAYS ?? "7") * 86400);
   const cap = process.env.EPOCH_CAP ? parseEther(process.env.EPOCH_CAP) : allowance * 250n;
-  const minter = await viem.deployContract("AllowanceMinter", [token.address, bank, allowance, epoch, cap]);
+  const minter = await viem.deployContract("AllowanceMinter", [token.address, bank, allowance, epoch, cap], fees);
   allowanceMinter = minter.address;
   console.log(`AllowanceMinter   ${allowanceMinter}`);
   console.log("  → the bank must call token.grantRole(MINTER_ROLE, AllowanceMinter) to activate it");
@@ -158,6 +189,7 @@ const out = {
   token: { address: token.address, name, symbol, decimals: 18 },
   recoveryModule: recovery.address,
   directory: directory.address,
+  invites: invites.address,
   allowanceMinter,
   aa,
 };
@@ -166,7 +198,7 @@ console.log(`\nWrote ${file.pathname}`);
 
 // Keep a copy of the ABIs next to the addresses for the app and server.
 const abis: Record<string, unknown> = {};
-for (const c of ["CommunityToken", "RecoveryModule", "MemberDirectory", "AllowanceMinter"]) {
+for (const c of ["CommunityToken", "RecoveryModule", "MemberDirectory", "AllowanceMinter", "Invites"]) {
   const a = JSON.parse(
     await readFile(new URL(`../artifacts/contracts/${c}.sol/${c}.json`, import.meta.url), "utf8"),
   );

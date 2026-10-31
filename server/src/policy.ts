@@ -2,8 +2,9 @@
  * Sponsorship policy: which user operations the central bank pays gas for.
  *
  * Sponsored:
- *   - Deploying a new member Safe, once per unused invite code, and only if the Safe is a
- *     standard Safe 1.4.1 whose setup enables the community RecoveryModule.
+ *   - Deploying a new member Safe, only if the Safe is a standard Safe 1.4.1 whose setup
+ *     enables the community RecoveryModule, and its first batch claims a valid invite
+ *     (the server checks the claim on-chain; see findClaim).
  *   - Operations from registered members whose calls are all on the allow-list below.
  * Everything else is refused, so a leaked app or a curious member cannot spend the budget
  * on arbitrary contract calls.
@@ -47,12 +48,27 @@ const setupAbi = parseAbi([
 const enableModulesAbi = parseAbi(["function enableModules(address[] modules)"]);
 const configureAbi = parseAbi(["function configure((uint256 x, uint256 y, uint176 verifiers) signer)"]);
 
-// target -> allowed function signatures. `self` means the sender Safe itself.
-const allowed: { target: Address | "self"; abi: ReturnType<typeof parseAbi> }[] = [
+const invitesAbi = parseAbi([
+  "function create(address key, uint256 amount, uint64 expiresAt)",
+  "function cancel(address key)",
+  "function claim(address key, bytes signature)",
+]);
+
+// target -> allowed function signatures. `self` means the sender Safe itself. `check` adds a
+// condition on the arguments.
+type Rule = {
+  target: Address | "self";
+  abi: ReturnType<typeof parseAbi>;
+  check?: (fn: string, args: readonly unknown[]) => boolean;
+};
+const allowed: Rule[] = [
   {
     target: deployment.token.address,
-    abi: parseAbi(["function transfer(address to, uint256 value)"]),
+    abi: parseAbi(["function transfer(address to, uint256 value)", "function approve(address spender, uint256 value)"]),
+    // approve only lets Invites pull the coins a member locks into an invite.
+    check: (fn, args) => fn !== "approve" || isAddressEqual(args[0] as Address, deployment.invites),
   },
+  { target: deployment.invites, abi: invitesAbi },
   {
     target: deployment.directory,
     abi: parseAbi([
@@ -124,13 +140,27 @@ export function checkCalls(op: RpcUserOperation) {
       r.target === "self" ? isAddressEqual(call.to, op.sender) : isAddressEqual(call.to, r.target),
     );
     if (!rule) throw new PolicyError(`calls to ${call.to} are not sponsored`);
+    let decoded;
     try {
-      decodeFunctionData({ abi: rule.abi, data: call.data });
+      decoded = decodeFunctionData({ abi: rule.abi, data: call.data });
     } catch {
       throw new PolicyError(`this function on ${call.to} is not sponsored`);
     }
+    if (rule.check && !rule.check(decoded.functionName, decoded.args ?? [])) {
+      throw new PolicyError(`this ${decoded.functionName} on ${call.to} is not sponsored`);
+    }
   }
   return calls;
+}
+
+/** The invite claim in a new account's first batch, if there is one. The caller checks it on-chain. */
+export function findClaim(op: RpcUserOperation): { key: Address; signature: Hex } | null {
+  for (const call of decodeCalls(op)) {
+    if (!isAddressEqual(call.to, deployment.invites)) continue;
+    const decoded = decodeFunctionData({ abi: invitesAbi, data: call.data });
+    if (decoded.functionName === "claim") return { key: decoded.args[0], signature: decoded.args[1] };
+  }
+  return null;
 }
 
 /**

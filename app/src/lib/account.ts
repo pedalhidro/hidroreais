@@ -3,8 +3,9 @@ import { toSafeSmartAccount } from "permissionless/accounts";
 import { createPimlicoClient } from "permissionless/clients/pimlico";
 import { encodeFunctionData, http, type Address, type Hex } from "viem";
 import { toWebAuthnAccount } from "viem/account-abstraction";
-import { chain, deployment, directoryAbi, serverUrl } from "../config";
+import { chain, deployment, directoryAbi, invitesAbi, serverUrl } from "../config";
 import { publicClient } from "./chain";
+import { claimSignature, inviteKeyOf } from "./invites";
 import type { Passkey } from "./passkey";
 import { credentialHash } from "./passkey";
 
@@ -16,7 +17,7 @@ export const pimlicoClient = createPimlicoClient({ transport: rpc, entryPoint })
 
 export type Call = { to: Address; data: Hex; value?: bigint };
 
-type AccountInput = {
+export type AccountInput = {
   credentialId: string;
   publicKey: Hex;
   /** Safe owner for this passkey. The first device uses the shared signer. */
@@ -48,14 +49,13 @@ function safeAccount(input: AccountInput) {
 }
 
 /** Sends calls from the member's Safe; gas is sponsored. Resolves with the tx hash once mined. */
-export async function sendCalls(input: AccountInput, calls: Call[], invite?: string): Promise<Hex> {
+export async function sendCalls(input: AccountInput, calls: Call[]): Promise<Hex> {
   const account = await safeAccount(input);
   const client = createSmartAccountClient({
     account,
     chain,
     bundlerTransport: rpc,
     paymaster: pimlicoClient,
-    paymasterContext: invite ? { invite } : {},
     userOperation: {
       estimateFeesPerGas: async () => (await pimlicoClient.getUserOperationGasPrice()).fast,
     },
@@ -76,25 +76,31 @@ export async function predictSafe(passkey: Passkey): Promise<Address> {
   return account.address;
 }
 
-/** First operation of a new member: deploys the Safe, sets the name, publishes the passkey. */
-export async function createAccount(passkey: Passkey, name: string, invite: string) {
+/**
+ * First operation of a new member: deploys the Safe, sets the name, publishes the passkey and
+ * claims the invite. The claim makes the invite spent only if the account really gets created;
+ * the name comes first so the inviter's notification has it.
+ */
+export async function createAccount(passkey: Passkey, name: string, invitePk: Hex) {
   const signer = deployment.aa.webAuthnSharedSigner;
   const input = { credentialId: passkey.id, publicKey: passkey.publicKey, signer };
   const safe = await predictSafe(passkey);
-  await sendCalls(
-    input,
-    [
-      { to: deployment.directory, data: encodeFunctionData({ abi: directoryAbi, functionName: "setName", args: [name] }) },
-      {
-        to: deployment.directory,
-        data: encodeFunctionData({
-          abi: directoryAbi,
-          functionName: "linkCredential",
-          args: [credentialHash(passkey.id), signer, passkey.x, passkey.y],
-        }),
-      },
-    ],
-    invite,
-  );
+  const claim = encodeFunctionData({
+    abi: invitesAbi,
+    functionName: "claim",
+    args: [inviteKeyOf(invitePk), await claimSignature(invitePk, safe)],
+  });
+  await sendCalls(input, [
+    { to: deployment.directory, data: encodeFunctionData({ abi: directoryAbi, functionName: "setName", args: [name] }) },
+    {
+      to: deployment.directory,
+      data: encodeFunctionData({
+        abi: directoryAbi,
+        functionName: "linkCredential",
+        args: [credentialHash(passkey.id), signer, passkey.x, passkey.y],
+      }),
+    },
+    { to: deployment.invites, data: claim },
+  ]);
   return { ...input, safe, name };
 }

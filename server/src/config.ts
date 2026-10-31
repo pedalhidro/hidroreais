@@ -9,6 +9,7 @@ export type Deployment = {
   token: { address: Address; name: string; symbol: string; decimals: number };
   recoveryModule: Address;
   directory: Address;
+  invites: Address;
   allowanceMinter?: Address;
   aa: {
     entryPoint: Address;
@@ -38,7 +39,7 @@ if (!chain) throw new Error(`Unsupported CHAIN_ID ${chainId}`);
 const deploymentsDir = new URL("../../deployments/", import.meta.url);
 const deploymentFile = process.env.DEPLOYMENT_FILE ?? new URL(`${chainId}.json`, deploymentsDir);
 export const deployment: Deployment = JSON.parse(readFileSync(deploymentFile, "utf8"));
-export const abis: Record<"CommunityToken" | "RecoveryModule" | "MemberDirectory" | "AllowanceMinter", Abi> =
+export const abis: Record<"CommunityToken" | "RecoveryModule" | "MemberDirectory" | "AllowanceMinter" | "Invites", Abi> =
   JSON.parse(readFileSync(new URL("abis.json", deploymentsDir), "utf8"));
 
 const pimlicoSlug = chainId === 100 ? "gnosis" : "chiado-testnet";

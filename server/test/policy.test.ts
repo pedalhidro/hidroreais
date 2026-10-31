@@ -7,7 +7,7 @@ process.env.PIMLICO_API_KEY = "test";
 process.env.RELAYER_PRIVATE_KEY = "0x" + "11".repeat(32);
 process.env.ADMIN_TOKEN = "test";
 
-const { checkCalls, checkDeployment, checkGas, PolicyError } = await import("../src/policy.js");
+const { checkCalls, checkDeployment, checkGas, findClaim, PolicyError } = await import("../src/policy.js");
 const { deployment } = await import("../src/config.js");
 
 const sender: Address = "0x000000000000000000000000000000000000cafe";
@@ -31,9 +31,35 @@ test("token transfer is sponsored", () => {
   checkCalls(single(deployment.token.address, encodeFunctionData({ abi: erc20, functionName: "transfer", args: [sender, 1n] })));
 });
 
-test("approve and unknown targets are refused", () => {
+test("approve is only sponsored for Invites, and unknown targets are refused", () => {
   assert.throws(() => checkCalls(single(deployment.token.address, encodeFunctionData({ abi: erc20, functionName: "approve", args: [sender, 1n] }))), PolicyError);
+  checkCalls(single(deployment.token.address, encodeFunctionData({ abi: erc20, functionName: "approve", args: [deployment.invites, 1n] })));
   assert.throws(() => checkCalls(single("0x00000000000000000000000000000000000000aa", "0x")), PolicyError);
+});
+
+test("creating an invite is sponsored, and the claim is found in a signup batch", () => {
+  const invitesAbi = parseAbi([
+    "function create(address key, uint256 amount, uint64 expiresAt)",
+    "function claim(address key, bytes signature)",
+  ]);
+  const key: Address = "0x00000000000000000000000000000000000000c1";
+  const create = batch([
+    { to: deployment.token.address, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [deployment.invites, 5n] }) },
+    { to: deployment.invites, data: encodeFunctionData({ abi: invitesAbi, functionName: "create", args: [key, 5n, 1n] }) },
+  ]);
+  assert.equal(checkCalls(create).length, 2);
+  assert.equal(findClaim(create), null);
+
+  const signup = batch([
+    { to: deployment.invites, data: encodeFunctionData({ abi: invitesAbi, functionName: "claim", args: [key, "0xabcd"] }) },
+    { to: deployment.directory, data: encodeFunctionData({ abi: dirAbi, args: ["Joana"] }) },
+  ]);
+  checkCalls(signup);
+  const claim = findClaim(signup);
+  assert.equal(claim?.key.toLowerCase(), key);
+  assert.equal(claim?.signature, "0xabcd");
+  // A signup batch without a claim has nothing to show for the invite requirement.
+  assert.equal(findClaim(batch([{ to: deployment.directory, data: encodeFunctionData({ abi: dirAbi, args: ["Joana"] }) }])), null);
 });
 
 test("sending xDAI is refused", () => {

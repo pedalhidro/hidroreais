@@ -9,6 +9,7 @@ export type Deployment = {
   token: { address: Address; name: string; symbol: string; decimals: number };
   recoveryModule: Address;
   directory: Address;
+  invites: Address;
   allowanceMinter?: Address;
   aa: {
     entryPoint: Address;
@@ -49,3 +50,4 @@ export const tokenAbi = abis.CommunityToken as Abi;
 export const recoveryAbi = abis.RecoveryModule as Abi;
 export const directoryAbi = abis.MemberDirectory as Abi;
 export const allowanceMinterAbi = abis.AllowanceMinter as Abi;
+export const invitesAbi = abis.Invites as Abi;

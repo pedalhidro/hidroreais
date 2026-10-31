@@ -9,7 +9,7 @@ covers setup.
 ## Layout
 
 ```
-contracts/    Hardhat 3, Solidity 0.8.28. Token, RecoveryModule, MemberDirectory, AllowanceMinter
+contracts/    Hardhat 3, Solidity 0.8.28. Token, RecoveryModule, MemberDirectory, Invites, AllowanceMinter
 server/       Node + Hono. Sponsorship policy, paymaster proxy, minimal bundler, EIP-3009 relayer,
               invites, log indexer, Web Push, recovery keeper
 app/          Vite + Preact PWA. UI copy is Brazilian Portuguese
@@ -24,9 +24,9 @@ cd contracts && npm test                      # Solidity tests (forge-std style,
 cd contracts && BANK_ADDRESS=0x… npm run deploy:chiado   # also regenerates deployments/abis.json
 cd server && npm test && npm run typecheck    # policy tests (node:test via tsx)
 cd server && npm start                        # needs .env (see .env.example)
-cd server && npm run invite -- 3 "note"       # prints signup links (needs ADMIN_TOKEN)
 cd app && npm run dev                         # passkeys need https or localhost
 cd app && npm run build                       # tsc + vite build
+cd app && npx wrangler pages deploy dist --project-name hidroreais   # app → dimdim.pedalhidrografi.co
 ```
 
 After any contract ABI change, rerun the deploy script (or at least a local run without
@@ -55,10 +55,19 @@ afterwards; it is only a local dry run.
   is proven: a fresh WebAuthn signature on login (`pickPasskey().provenBy`), or the key this
   device created (NewDevice). It then checks on-chain that the signer is a Safe owner and
   matches the key. Don't weaken either step.
-- **Invites are spent on deployment, not on request.** The server marks an invite `pending`
-  with the predicted Safe at `pm_getPaymasterData`, and only turns it into `usedBy` + a
-  member once that Safe has code (`settleInvite`). The app reuses an unfinished signup's
-  passkey (`coin.signup-passkey` in localStorage) so a retry keeps the same address.
+- **Invites are spent on deployment, not on request.** A new Safe's first batch calls
+  `Invites.claim`, so the invite is used up only in the transaction that creates the
+  account. The server sponsors a deployment only if `findClaim` finds that claim and
+  `Invites.claimable(key, sender, sig)` passes. Membership is `Invites.joined` (indexed,
+  with an on-chain fallback in `isMemberNow`). An unfinished signup's passkey
+  (`coin.signup-passkey`) is kept for one retry: if its Safe already exists the app just
+  finishes, otherwise it tries once more and then forgets it (it may have been deleted).
+- **An invite is a throwaway key.** Its private key lives only in the link fragment
+  (`#/welcome?i=…`) and in the creator's localStorage (`coin.invite-keys`). The claim
+  signs (chainId, Invites, account), so a copied transaction can't redirect it. Member
+  invites lock coins (0 is fine, `approve` is sponsored only towards Invites) and are
+  capped per member; bank invites mint per claim and can be multi-use. Expired member
+  invites are refunded by the server keeper (`refundExpiredInvites`).
 - **Passkeys get a random WebAuthn user handle.** Synced keychains replace passkeys sharing
   rpId + user handle. Don't go back to deriving it from the name.
 - **Recovery delay is a setting.** `RecoveryModule.recoveryDelay` is 0 while testing
@@ -103,16 +112,21 @@ afterwards; it is only a local dry run.
   `checkDeployment` in agreement.
 - On iPhone, Web Push only works from the home-screen PWA. Links tapped in WhatsApp open
   in Safari, so `#/pay?to=…` must work in a plain browser tab.
-- `index.html` has a CSP. Tighten `connect-src` to the real RPC and server hosts when
-  deploying.
+- `index.html` has a CSP. Builds narrow `connect-src` to `VITE_SERVER_URL` and the RPC
+  (vite.config.ts `build-csp`); dev relaxes it (`dev-csp`). The pilot runs on
+  dimdim.pedalhidrografi.co (app) and dimdim-api.pedalhidrografi.co (server); see README.
 
 ## Status
 
 - Built: roadmap steps 1 to 3 (contracts, PWA MVP, devices and recovery).
-- Tests: 26 Solidity tests pass, and the server policy tests pass.
-- Exercised on Chiado: deploy, passkey signup in Chrome (Safe deployed through the
-  server's own bundler). Not yet exercised: payments between members, devices, recovery,
-  and the bank's enforcement actions.
+- Tests: 35 Solidity tests pass, and the server policy tests pass.
+- Live pilot on Chiado: app at dimdim.pedalhidrografi.co (Cloudflare Pages), server on a
+  workstation through a Cloudflare Tunnel (dimdim-api), temporary until it moves to a VPS.
+- Exercised on Chiado: deploy, passkey signup in Chrome, a bank invite (mint on claim) and
+  a member invite with a gift, all through the server's own bundler. Linking a second
+  device worked, but a payment from that device failed with AA24 (signature); not yet
+  explained (rejected operations are now logged by bundler.ts). Not yet exercised:
+  payments between members, recovery, the bank's enforcement actions.
 - The central bank can mint, confiscate (burn), force transfers and take control of an
   account at once (no delay, no cancel). Each coercive action needs a reason, which the
   transparency page shows.

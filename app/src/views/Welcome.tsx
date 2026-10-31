@@ -1,15 +1,17 @@
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { Notice, Screen } from "../components/ui";
-import { symbol } from "../config";
-import { createAccount } from "../lib/account";
-import { lookupCredential } from "../lib/chain";
-import { friendlyError } from "../lib/format";
+import { currency, deployment, symbol } from "../config";
+import { createAccount, predictSafe } from "../lib/account";
+import { api, lookupCredential, publicClient, type InviteRecord } from "../lib/chain";
+import { coins, friendlyError } from "../lib/format";
 import { setIdentity } from "../lib/identity";
+import { inviteKeyOf, parseInvitePk } from "../lib/invites";
 import { createPasskey, fromPublicKey, passkeysSupported, pickPasskey, type Passkey } from "../lib/passkey";
 import { go, type Route } from "../lib/router";
 
-// If signup fails after the passkey was created (prompt cancelled, network), reuse that
-// passkey on retry so the same account address and invite are used.
+// The passkey of a signup in progress. If an earlier attempt did create the account (say the app
+// closed before it saw the receipt), the retry just finishes it. Otherwise the passkey is tried
+// once more and then forgotten, since it may have been deleted from the device.
 const SIGNUP = "coin.signup-passkey";
 function savedSignupPasskey(): Passkey | null {
   try {
@@ -23,7 +25,15 @@ function savedSignupPasskey(): Passkey | null {
 }
 
 export function Welcome({ route }: { route: Route }) {
-  const invite = route.query.get("invite") ?? "";
+  const invitePk = parseInvitePk(route.query.get("i"));
+  const oldStyleInvite = !invitePk && route.query.has("invite");
+  // undefined while loading; null if the server has not seen it (yet): the claim is checked anyway.
+  const [invite, setInvite] = useState<{ invite: InviteRecord | null; creatorName: string | null } | undefined>();
+  useEffect(() => {
+    if (invitePk) api.invite(inviteKeyOf(invitePk)).then(setInvite).catch(() => setInvite({ invite: null, creatorName: null }));
+  }, [invitePk]);
+  const closed =
+    !!invite?.invite && (invite.invite.closed || invite.invite.expiresAt * 1000 <= Date.now());
   const [name, setName] = useState("");
   const [busy, setBusy] = useState<"" | "create" | "login">("");
   const [error, setError] = useState("");
@@ -47,15 +57,26 @@ export function Welcome({ route }: { route: Route }) {
     setError("");
     try {
       let passkey = savedSignupPasskey();
-      if (!passkey) {
+      if (passkey) {
+        const safe = await predictSafe(passkey);
+        if (await publicClient.getCode({ address: safe })) {
+          localStorage.removeItem(SIGNUP);
+          const signer = deployment.aa.webAuthnSharedSigner;
+          setIdentity({ credentialId: passkey.id, publicKey: passkey.publicKey, signer, safe, name: trimmed });
+          return go("/");
+        }
+      } else {
         passkey = await createPasskey(trimmed);
         localStorage.setItem(SIGNUP, JSON.stringify({ id: passkey.id, publicKey: passkey.publicKey }));
       }
-      const identity = await createAccount(passkey, trimmed, invite);
+      const identity = await createAccount(passkey, trimmed, invitePk!);
       localStorage.removeItem(SIGNUP);
       setIdentity(identity);
       go("/");
     } catch (err) {
+      // Start fresh next time. If this attempt still lands (a receipt timeout), the passkey is on the
+      // device and "Já tenho conta" finds the account through its CredentialLinked event.
+      localStorage.removeItem(SIGNUP);
       setError(friendlyError(err));
     } finally {
       setBusy("");
@@ -84,7 +105,11 @@ export function Welcome({ route }: { route: Route }) {
   return (
     <Screen>
       <Hero />
-      {invite ? (
+      {invitePk && invite && <InviteCard {...invite} />}
+      {invitePk && closed && (
+        <Notice tone="error">Este convite não vale mais: expirou ou já foi usado. Peça um novo a quem te convidou.</Notice>
+      )}
+      {invitePk && !closed ? (
         <form class="stack" onSubmit={create}>
           <label class="field">
             <span>Seu nome na comunidade</span>
@@ -105,7 +130,13 @@ export function Welcome({ route }: { route: Route }) {
           </p>
         </form>
       ) : (
-        <Notice>Para criar uma conta você precisa do link de convite de alguém da comunidade.</Notice>
+        !invitePk && (
+          <Notice>
+            {oldStyleInvite
+              ? "Este link de convite é do formato antigo e não vale mais. Peça um novo."
+              : "Para criar uma conta, peça um link de convite a alguém da comunidade."}
+          </Notice>
+        )
       )}
 
       <div class="stack stack-tight">
@@ -118,6 +149,29 @@ export function Welcome({ route }: { route: Route }) {
       </div>
       {error && <Notice tone="error">{error}</Notice>}
     </Screen>
+  );
+}
+
+function InviteCard({ invite, creatorName }: { invite: InviteRecord | null; creatorName: string | null }) {
+  if (!invite) return null;
+  const gift = BigInt(invite.amount);
+  return (
+    <section class="invite-card">
+      <p>
+        <strong>{creatorName ?? "Alguém da comunidade"}</strong> te convidou
+        {gift > 0n && (
+          <>
+            {" "}
+            e te dá{" "}
+            <strong>
+              {coins(gift)} {currency}
+            </strong>
+          </>
+        )}
+        .
+      </p>
+      <p class="fine">Vale até {new Date(invite.expiresAt * 1000).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}.</p>
+    </section>
   );
 }
 

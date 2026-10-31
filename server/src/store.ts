@@ -27,11 +27,24 @@ export type RecoveryEvent = {
   block: number;
 };
 
+export type InviteRecord = {
+  key: string;
+  creator: string;
+  amount: string; // wei: locked (member invite) or minted per account (bank invite)
+  minting: boolean;
+  maxUses: number;
+  uses: number;
+  expiresAt: number; // unix seconds
+  closed: boolean; // used up, cancelled, or closed after expiry
+  refunded?: string;
+  tx: string;
+  block: number;
+};
+
 export type Credential = { credentialHash: string; safe: string; signer: string; x: string; y: string; block: number };
 
 type State = {
-  /** pending: the Safe a signup is creating with this invite; usedBy: set once it exists. */
-  invites: Record<string, { createdAt: number; usedBy?: string; pending?: string; note?: string }>;
+  /** Accounts that joined through an invite, plus external wallets an admin registered. */
   members: Record<string, { joinedAt: number; invite?: string }>;
   usage: Record<string, { day: string; ops: number; relays: number }>;
   subscriptions: Record<string, PushSubscription[]>;
@@ -41,15 +54,15 @@ type State = {
     credentials: Credential[];
     activity: Activity[];
     recoveries: RecoveryEvent[];
+    invites: Record<string, InviteRecord>;
   };
 };
 
 const empty = (): State => ({
-  invites: {},
   members: {},
   usage: {},
   subscriptions: {},
-  index: { lastBlock: 0, names: {}, credentials: [], activity: [], recoveries: [] },
+  index: { lastBlock: 0, names: {}, credentials: [], activity: [], recoveries: [], invites: {} },
 });
 
 mkdirSync(config.dataDir, { recursive: true });
@@ -57,7 +70,8 @@ const file = join(config.dataDir, "store.json");
 
 function load(): State {
   try {
-    return { ...empty(), ...JSON.parse(readFileSync(file, "utf8")) };
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    return { ...empty(), ...saved, index: { ...empty().index, ...saved.index } };
   } catch {
     return empty();
   }

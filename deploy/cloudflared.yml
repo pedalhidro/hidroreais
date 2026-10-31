@@ -1,0 +1,8 @@
+# Copy to ~/.cloudflared/hidroreais.yml and put in the tunnel id that
+# `cloudflared tunnel create hidroreais` printed (also the name of the .json file it wrote).
+tunnel: TUNNEL_ID
+credentials-file: /home/danilo/.cloudflared/TUNNEL_ID.json
+ingress:
+  - hostname: dimdim-api.pedalhidrografi.co
+    service: http://localhost:8787
+  - service: http_status:404
