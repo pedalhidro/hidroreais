@@ -9,6 +9,7 @@ import { setIdentity, type Identity } from "../lib/identity";
 import { decodeDevice, routeFromScan } from "../lib/links";
 import { credentialHash, fromPublicKey } from "../lib/passkey";
 import { go, type Route } from "../lib/router";
+import { connectWallet, injectedWallet } from "../lib/wallet";
 
 const SENTINEL = "0x0000000000000000000000000000000000000001" as Address;
 
@@ -74,7 +75,7 @@ export function Devices({ identity }: { identity: Identity }) {
   }
 
   const label = (o: Owner) =>
-    o.kind === "this" ? "Este aparelho" : o.kind === "passkey" ? `Passkey ${short(o.address)}` : `Carteira ${short(o.address)}`;
+    o.kind === "this" ? "Este aparelho" : o.kind === "passkey" ? `Passkey ${short(o.address)}` : `Carteira de reserva ${short(o.address)}`;
 
   return (
     <Screen title="Aparelhos e recuperação" back="/">
@@ -99,6 +100,8 @@ export function Devices({ identity }: { identity: Identity }) {
         aparecer lá.
       </p>
       {error && <Notice tone="error">{error}</Notice>}
+
+      <BackupWallet identity={identity} owners={owners} onAdded={() => load().catch(() => {})} />
 
       <h2>Se você perder todos os aparelhos</h2>
       <p>
@@ -130,6 +133,76 @@ export function Devices({ identity }: { identity: Identity }) {
         Sair deste aparelho
       </button>
     </Screen>
+  );
+}
+
+/**
+ * A wallet the member controls (MetaMask, Rabby, …) as an extra owner: with it they can move their
+ * coins without any device and without the bank (#/backup). Only a connected wallet can be added,
+ * never a typed address, so a typo can't hand the account to a stranger.
+ */
+function BackupWallet(props: { identity: Identity; owners: Owner[]; onAdded: () => void }) {
+  const [wallet, setWallet] = useState<Address | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const already = props.owners.some((o) => o.kind === "wallet");
+
+  async function connect() {
+    setError("");
+    try {
+      setWallet((await connectWallet()).account);
+    } catch (err) {
+      setError(friendlyError(err));
+    }
+  }
+
+  async function add() {
+    if (!wallet) return;
+    setBusy(true);
+    setError("");
+    try {
+      await sendCalls(props.identity, [
+        { to: props.identity.safe, data: encodeFunctionData({ abi: safeAbi, functionName: "addOwnerWithThreshold", args: [wallet, 1n] }) },
+      ]);
+      setDone(true);
+      props.onAdded();
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section class="stack">
+      <h2>Carteira de reserva</h2>
+      <p>
+        Uma carteira sua (MetaMask, Rabby…) pode ser a chave reserva da conta. Com ela você move suas moedas mesmo sem
+        nenhum aparelho e sem o banco. Quem tiver essa carteira controla a conta, então guarde a frase secreta dela com
+        cuidado.
+      </p>
+      {already && !done && <p class="fine">Sua conta já tem uma carteira de reserva (veja a lista acima).</p>}
+      {done ? (
+        <Notice tone="ok">Carteira de reserva adicionada. Se um dia precisar, use “Usar carteira de reserva” na tela inicial.</Notice>
+      ) : !injectedWallet() ? (
+        <p class="fine">Abra esta página num navegador com carteira (por exemplo no computador, com a MetaMask).</p>
+      ) : wallet ? (
+        <>
+          <p>
+            Carteira conectada: <strong>{short(wallet)}</strong>
+          </p>
+          <button class="btn btn-primary" onClick={add} disabled={busy}>
+            {busy ? "Adicionando…" : "Adicionar como carteira de reserva"}
+          </button>
+        </>
+      ) : (
+        <button class="btn btn-secondary" onClick={connect}>
+          Conectar carteira
+        </button>
+      )}
+      {error && <Notice tone="error">{error}</Notice>}
+    </section>
   );
 }
 

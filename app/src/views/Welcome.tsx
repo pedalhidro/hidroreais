@@ -146,6 +146,9 @@ export function Welcome({ route }: { route: Route }) {
         <a class="btn btn-quiet" href="#/new-device">
           Adicionar este aparelho a uma conta
         </a>
+        <a class="btn btn-link" href="#/backup">
+          Perdi os aparelhos: usar carteira de reserva
+        </a>
       </div>
       {error && <Notice tone="error">{error}</Notice>}
     </Screen>

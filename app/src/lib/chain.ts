@@ -26,7 +26,8 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export type Member = { address: Address; name: string | null };
+/** wallets: backup wallets (plain addresses) that are owners of the member's account. */
+export type Member = { address: Address; name: string | null; wallets?: string[] };
 /** confiscation: burned by the central bank; forced: moved by the central bank. Both carry a reason. */
 export type ActivityItem = {
   kind: "transfer" | "mint" | "confiscation" | "forced";
@@ -71,10 +72,11 @@ export const api = {
   recoveredBy: (owner: Address) => get<RecoveryItem[]>(`/recovered-by/${owner}`),
   invite: (key: Address) => get<{ invite: InviteRecord | null; creatorName: string | null }>(`/invite/${key}`),
   invitesBy: (creator: Address) => get<InviteRecord[]>(`/invites/by/${creator}`),
+  walletAccount: (wallet: Address) => get<{ safe: Address; name: string | null } | null>(`/wallet/${wallet}`),
   transparency: () =>
     get<{
       names: Record<string, string>;
-      accounts: { address: string; balance: string }[];
+      accounts: { address: string; balance: string; wallets: string[] }[];
       mints: ActivityItem[];
       enforcement: ActivityItem[];
       recoveries: RecoveryItem[];

@@ -6,7 +6,7 @@ import { coins, friendlyError, nameOr, short } from "../lib/format";
 
 type Data = {
   names: Record<string, string>;
-  accounts: { address: string; balance: string }[];
+  accounts: { address: string; balance: string; wallets: string[] }[];
   mints: ActivityItem[];
   enforcement: ActivityItem[];
   recoveries: RecoveryItem[];
@@ -78,7 +78,14 @@ export function Transparency() {
         {data?.accounts.map((a) => (
           <li key={a.address}>
             <a href={`${explorerUrl}/address/${a.address}`} target="_blank" rel="noreferrer">
-              <span>{nameOr(data.names, a.address)}</span>
+              <span>
+                {nameOr(data.names, a.address)}
+                {a.wallets.map((w) => (
+                  <span class="reason" key={w}>
+                    Carteira de reserva {short(w)}
+                  </span>
+                ))}
+              </span>
               <span class="amount">{coins(a.balance)}</span>
             </a>
           </li>

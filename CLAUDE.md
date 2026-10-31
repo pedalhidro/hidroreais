@@ -68,6 +68,13 @@ afterwards; it is only a local dry run.
   invites lock coins (0 is fine, `approve` is sponsored only towards Invites) and are
   capped per member; bank invites mint per claim and can be multi-use. Expired member
   invites are refunded by the server keeper (`refundExpiredInvites`).
+- **Backup wallets are plain owners.** A member can add a wallet (MetaMask, Rabby…) as an
+  extra Safe owner from Aparelhos (`BackupWallet`); only a connected wallet, never a typed
+  address. It rescues funds without devices or the bank at `#/backup`: the wallet calls
+  `execTransaction` itself with a v=1 "approved by sender" signature and pays its own xDAI.
+  The server learns which wallet belongs to whom by multicalling `getOwners` (wallets.ts);
+  owners with code are passkey signers. Treat `/wallet/:address` as a hint and re-check
+  `isOwner` on-chain.
 - **Passkeys get a random WebAuthn user handle.** Synced keychains replace passkeys sharing
   rpId + user handle. Don't go back to deriving it from the name.
 - **Recovery delay is a setting.** `RecoveryModule.recoveryDelay` is 0 while testing

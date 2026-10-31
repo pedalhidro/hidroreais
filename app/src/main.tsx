@@ -2,6 +2,7 @@ import { render } from "preact";
 import { registerSW } from "virtual:pwa-register";
 import { useIdentity } from "./lib/identity";
 import { useRoute } from "./lib/router";
+import { Backup } from "./views/Backup";
 import { Bank } from "./views/Bank";
 import { Devices, LinkDevice } from "./views/Devices";
 import { External } from "./views/External";
@@ -28,6 +29,8 @@ function App() {
       return <External route={route} />;
     case "/bank":
       return <Bank route={route} />;
+    case "/backup":
+      return <Backup />;
   }
 
   if (!identity) return <Welcome route={route} />;

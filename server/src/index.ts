@@ -9,6 +9,7 @@ import { PolicyError, checkCalls, checkDeployment, checkGas, findClaim, type Rpc
 import { subscribe } from "./push.js";
 import { RelayError, executeDueRecoveries, refundExpiredInvites, relayTransfer, relayerAddress, type RelayRequest } from "./relay.js";
 import { consume, isMember, save, saveNow, state } from "./store.js";
+import { refreshWallets, safeOfWallet, walletNames, walletsOf } from "./wallets.js";
 
 const app = new Hono();
 // ALLOWED_ORIGIN: "*" or a comma-separated list, e.g. the PWA's domain plus http://localhost:5173.
@@ -182,6 +183,7 @@ app.get("/directory", (c) => {
   const members = Object.keys(state.members).map((address) => ({
     address: getAddress(address),
     name: state.index.names[address] ?? null,
+    wallets: walletsOf(address),
   }));
   members.sort((a, b) => (a.name ?? "~").localeCompare(b.name ?? "~"));
   return c.json(members);
@@ -192,8 +194,15 @@ app.get("/credential/:hash", (c) => {
   return c.json(state.index.credentials.filter((x) => x.credentialHash === hash));
 });
 
-// Coins locked into or returned from an invite move through the Invites contract.
-const names = () => ({ ...state.index.names, [deployment.invites.toLowerCase()]: "Convites" });
+// Coins locked into or returned from an invite move through the Invites contract, and members'
+// backup wallets show as "name (carteira)".
+const names = () => ({ ...walletNames(), ...state.index.names, [deployment.invites.toLowerCase()]: "Convites" });
+
+/** The member account a backup wallet belongs to (the app re-checks ownership on-chain). */
+app.get("/wallet/:address", (c) => {
+  const safe = safeOfWallet(c.req.param("address"));
+  return c.json(safe ? { safe: getAddress(safe), name: state.index.names[safe] ?? null } : null);
+});
 
 app.get("/activity/:address", (c) => {
   const a = c.req.param("address").toLowerCase();
@@ -235,7 +244,7 @@ function balances() {
   return [...total]
     .filter(([a, v]) => v > 0n || state.members[a])
     .sort(([, x], [, y]) => (y > x ? 1 : y < x ? -1 : 0))
-    .map(([address, v]) => ({ address, balance: v.toString() }));
+    .map(([address, v]) => ({ address, balance: v.toString(), wallets: walletsOf(address) }));
 }
 
 app.get("/transparency", (c) =>
@@ -297,6 +306,8 @@ app.post("/admin/reindex", async (c) => {
 startIndexer();
 setInterval(() => void executeDueRecoveries(), 60_000);
 setInterval(() => void refundExpiredInvites(), 60_000);
+void refreshWallets().catch((err) => console.warn("wallets:", (err as Error).message));
+setInterval(() => void refreshWallets().catch((err) => console.warn("wallets:", (err as Error).message)), 60_000);
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Community coin server on :${info.port} (chain ${config.chainId}, relayer ${relayerAddress})`);
 });
