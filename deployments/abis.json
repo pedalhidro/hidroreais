@@ -2404,6 +2404,11 @@
           "internalType": "uint64",
           "name": "expiresAt",
           "type": "uint64"
+        },
+        {
+          "internalType": "bool",
+          "name": "openToMembers",
+          "type": "bool"
         }
       ],
       "name": "create",

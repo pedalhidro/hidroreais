@@ -503,6 +503,8 @@ p {
 }
 .tab {
   flex: 1;
+  white-space: nowrap;
+  padding: 0 6px;
   border: 0;
   background: none;
   font: inherit;

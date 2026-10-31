@@ -66,6 +66,9 @@ function PickRecipient({ identity, members }: { identity: Identity; members: Mem
       <button class="btn btn-primary" onClick={() => setScanning(true)}>
         Escanear código
       </button>
+      <a class="btn btn-secondary" href="#/pay-link">
+        Pagar com link (QR)
+      </a>
       {error && <Notice tone="error">{error}</Notice>}
       <label class="field">
         <span>Ou escolha quem vai receber</span>

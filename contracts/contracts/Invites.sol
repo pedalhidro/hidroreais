@@ -12,9 +12,10 @@ interface IMintableToken is IERC20 {
 /// @title Invites
 /// @notice The way into the community: a new account claims an invite in the same transaction
 ///         that deploys it, so an invite is spent only if the account really gets created.
-///         - Member invites lock coins (zero is fine) from the creator; the new account gets
-///           them. Single use. The creator can cancel at any time, and once the invite has
-///           expired anyone can return the coins to the creator.
+///         - Member invites lock coins (zero is fine) from the creator; whoever claims gets them.
+///           Single use, for a new account, or also for an existing member (`openToMembers`),
+///           which makes it a payment by link. The creator can cancel at any time, and once the
+///           invite has expired anyone can return the coins to the creator.
 ///         - Bank invites mint a fixed amount per account, up to `maxUses` accounts. They are for
 ///           new accounts only, or also open to existing members (`openToMembers`), once per account.
 ///         An invite is a throwaway key pair whose private key travels in the link. Claiming
@@ -28,7 +29,7 @@ contract Invites {
         address creator;
         uint64 expiresAt;
         bool minting; // bank invite: mint `amount` per claim instead of handing over locked coins
-        bool openToMembers; // bank invite only: existing members may claim it too, once each
+        bool openToMembers; // existing members may claim it too (once each, for bank links)
         uint32 maxUses;
         uint32 uses; // == maxUses once the invite is used up, cancelled or refunded
         uint256 amount;
@@ -109,11 +110,12 @@ contract Invites {
         emit MaxOpenPerMemberChanged(maxOpen);
     }
 
-    /// @notice A member invites one person, locking `amount` (pulled with transferFrom, so approve first).
-    function create(address key, uint256 amount, uint64 expiresAt) external {
+    /// @notice A member locks `amount` (pulled with transferFrom, so approve first) for one person:
+    ///         someone new, or with `openToMembers` also an existing member (a payment by link).
+    function create(address key, uint256 amount, uint64 expiresAt, bool openToMembers) external {
         if (!joined[msg.sender]) revert OnlyMembers();
         if (openInvites[msg.sender] >= maxOpenPerMember) revert TooManyOpenInvites();
-        _store(key, Invite(msg.sender, expiresAt, false, false, 1, 0, amount));
+        _store(key, Invite(msg.sender, expiresAt, false, openToMembers, 1, 0, amount));
         openInvites[msg.sender] += 1;
         if (amount > 0) token.transferFrom(msg.sender, address(this), amount);
     }

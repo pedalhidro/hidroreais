@@ -500,7 +500,7 @@ contract InvitesTest is Test {
         (key, pk) = makeAddrAndKey(label);
         vm.startPrank(alice);
         token.approve(address(invites), amount);
-        invites.create(key, amount, uint64(block.timestamp) + duration);
+        invites.create(key, amount, uint64(block.timestamp) + duration, false);
         vm.stopPrank();
     }
 
@@ -610,14 +610,14 @@ contract InvitesTest is Test {
     function test_onlyMembersInviteAndOpenInvitesAreCapped() public {
         vm.prank(bob);
         vm.expectRevert(Invites.OnlyMembers.selector);
-        invites.create(makeAddr("k0"), 0, uint64(block.timestamp + 1 hours));
+        invites.create(makeAddr("k0"), 0, uint64(block.timestamp + 1 hours), false);
 
         _aliceJoins();
         (address first,) = _memberInvite("free1", 0, 1 hours); // a gift is optional
         _memberInvite("free2", 0, 1 hours);
         vm.prank(alice);
         vm.expectRevert(Invites.TooManyOpenInvites.selector);
-        invites.create(makeAddr("free3"), 0, uint64(block.timestamp + 1 hours));
+        invites.create(makeAddr("free3"), 0, uint64(block.timestamp + 1 hours), false);
 
         vm.prank(alice);
         invites.cancel(first);
@@ -687,12 +687,39 @@ contract InvitesTest is Test {
 
         // Imported members can invite...
         vm.prank(alice);
-        invites.create(makeAddr("gift"), 0, uint64(block.timestamp + 1 hours));
+        invites.create(makeAddr("gift"), 0, uint64(block.timestamp + 1 hours), false);
         // ...and new-only links refuse them.
         (address key, uint256 pk) = _bankInvite("newOnly", 5 ether, 10);
         bytes memory sig = _sig(pk, carol);
         vm.prank(carol);
         vm.expectRevert(Invites.AlreadyJoined.selector);
         invites.claim(key, sig);
+    }
+
+    function test_memberPaymentLinkPaysAnExistingMember() public {
+        _aliceJoins(); // 10
+        (address bobKey, uint256 bobPk) = _bankInvite("bobJoins", 1 ether, 1);
+        bytes memory bobJoin = _sig(bobPk, bob);
+        vm.prank(bob);
+        invites.claim(bobKey, bobJoin); // bob is a member with 1
+
+        (address key, uint256 pk) = makeAddrAndKey("payLink");
+        vm.startPrank(alice);
+        token.approve(address(invites), 4 ether);
+        invites.create(key, 4 ether, uint64(block.timestamp + 1 hours), true);
+        vm.stopPrank();
+
+        bytes memory forBob = _sig(pk, bob);
+        vm.prank(bob);
+        invites.claim(key, forBob);
+        assertEq(token.balanceOf(bob), 5 ether);
+        assertEq(token.balanceOf(alice), 6 ether);
+        assertEq(invites.openInvites(alice), 0);
+
+        // Single use: nobody else, member or not, can take it again.
+        bytes memory forCarol = _sig(pk, carol);
+        vm.prank(carol);
+        vm.expectRevert(Invites.InviteClosedAlready.selector);
+        invites.claim(key, forCarol);
     }
 }

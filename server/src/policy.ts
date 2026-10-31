@@ -49,7 +49,7 @@ const enableModulesAbi = parseAbi(["function enableModules(address[] modules)"])
 const configureAbi = parseAbi(["function configure((uint256 x, uint256 y, uint176 verifiers) signer)"]);
 
 const invitesAbi = parseAbi([
-  "function create(address key, uint256 amount, uint64 expiresAt)",
+  "function create(address key, uint256 amount, uint64 expiresAt, bool openToMembers)",
   "function cancel(address key)",
   "function claim(address key, bytes signature)",
 ]);

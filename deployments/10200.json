@@ -10,7 +10,7 @@
   },
   "recoveryModule": "0xadd5ee0745322209c6813c73c5f61c977466d256",
   "directory": "0xa86dc56b5ae8b66695c63a45307445e86f57665b",
-  "invites": "0x8743a407699246dcef26d4b45c464403e88aa870",
+  "invites": "0x2a55fec20de9b98b57acec08d87e443749d57dc0",
   "allowanceMinter": "0x5f697816cc4cd134c3972ead193c855b02b34391",
   "aa": {
     "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
@@ -25,6 +25,7 @@
     "p256Verifier": "0xc2b78104907F722DABAc4C69f826a522B2754De4"
   },
   "previousInvites": [
-    "0x34b16a03fae9d529e7b34c327dda18ada2ffb7b3"
+    "0x34b16a03fae9d529e7b34c327dda18ada2ffb7b3",
+    "0x8743a407699246dcef26d4b45c464403e88aa870"
   ]
 }

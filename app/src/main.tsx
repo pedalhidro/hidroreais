@@ -12,6 +12,7 @@ import { Home } from "./views/Home";
 import { Invite } from "./views/Invite";
 import { NewDevice } from "./views/NewDevice";
 import { Pay } from "./views/Pay";
+import { PayLink } from "./views/PayLink";
 import { Receive } from "./views/Receive";
 import { Transparency } from "./views/Transparency";
 import { Welcome } from "./views/Welcome";
@@ -40,6 +41,8 @@ function App() {
   switch (route.path) {
     case "/pay":
       return <Pay identity={identity} route={route} />;
+    case "/pay-link":
+      return <PayLink identity={identity} />;
     case "/receive":
       return <Receive identity={identity} />;
     case "/invite":

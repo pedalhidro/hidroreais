@@ -64,11 +64,12 @@ export async function relayTransfer(r: RelayRequest): Promise<Hex> {
 export async function refundExpiredInvites() {
   const now = Math.floor(Date.now() / 1000);
   for (const inv of Object.values(state.index.invites)) {
-    if (inv.closed || inv.minting || inv.expiresAt > now || inv.contract !== deployment.invites.toLowerCase()) continue;
+    // Refunds go to whichever Invites contract holds the coins, current or previous.
+    if (inv.closed || inv.minting || inv.expiresAt > now || !inv.contract) continue;
     try {
       const { request } = await publicClient.simulateContract({
         account,
-        address: deployment.invites,
+        address: getAddress(inv.contract),
         abi: abis.Invites,
         functionName: "refund",
         args: [getAddress(inv.key)],

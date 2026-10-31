@@ -169,7 +169,9 @@ async function fetchRange(fromBlock: bigint, toBlock: bigint) {
     publicClient.getLogs({ address: deployment.token.address, events: [transfer, confiscated, forced], fromBlock, toBlock, strict: true }),
     publicClient.getLogs({ address: deployment.directory, events: [nameSet, credentialLinked], fromBlock, toBlock, strict: true }),
     publicClient.getLogs({ address: deployment.recoveryModule, events: [recInitiated, recExecuted, recCancelled, controlTaken], fromBlock, toBlock, strict: true }),
-    publicClient.getLogs({ address: deployment.invites, events: [inviteCreated, inviteClaimed, inviteClosed, memberImported], fromBlock, toBlock, strict: true }),
+    // Previous Invites contracts too: their links can't be claimed from the app anymore, but locked
+    // coins still get refunded there and the records must follow.
+    publicClient.getLogs({ address: [deployment.invites, ...(deployment.previousInvites ?? [])], events: [inviteCreated, inviteClaimed, inviteClosed, memberImported], fromBlock, toBlock, strict: true }),
   ]);
   const all = [...token, ...directory, ...recovery, ...invites] as unknown as DecodedLog[];
   all.sort((x, y) => Number(x.blockNumber - y.blockNumber) || x.logIndex - y.logIndex);

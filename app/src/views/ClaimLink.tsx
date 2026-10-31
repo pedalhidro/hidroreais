@@ -75,16 +75,22 @@ export function ClaimLink({ identity, pk }: { identity: Identity; pk: Hex }) {
   }
 
   return (
-    <Screen title="Link do banco" back="/">
+    <Screen title="Receber pelo link" back="/">
       {info === null || claimable === null ? (
         <p class="fine">Conferindo o link…</p>
       ) : claimable ? (
         <>
           <section class="invite-card">
-            <p>
-              <strong>{info?.creatorName ?? "O banco central"}</strong> está distribuindo <strong>{amount}</strong> para cada
-              conta.
-            </p>
+            {inv && !inv.minting ? (
+              <p>
+                <strong>{info?.creatorName ?? "Alguém da comunidade"}</strong> te enviou <strong>{amount}</strong>.
+              </p>
+            ) : (
+              <p>
+                <strong>{info?.creatorName ?? "O banco central"}</strong> está distribuindo <strong>{amount}</strong> para
+                cada conta.
+              </p>
+            )}
           </section>
           <button class="btn btn-primary" onClick={claim} disabled={busy}>
             {busy ? "Recebendo…" : `Receber ${amount}`}

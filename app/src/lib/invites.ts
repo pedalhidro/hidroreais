@@ -19,6 +19,15 @@ export const EXPIRY_PRESETS = [
 ] as const;
 export const DEFAULT_EXPIRY = 24 * 3600;
 
+/** Payment links are like cash in hand: short by default. */
+export const PAY_LINK_PRESETS = [
+  { label: "5 min", seconds: 5 * 60 },
+  { label: "1 hora", seconds: 3600 },
+  { label: "1 dia", seconds: 24 * 3600 },
+  { label: "1 semana", seconds: 7 * 24 * 3600 },
+] as const;
+export const PAY_LINK_DEFAULT_EXPIRY = 5 * 60;
+
 export const inviteKeyOf = (pk: Hex): Address => privateKeyToAccount(pk).address;
 export const inviteLink = (pk: Hex) => `${base()}#/welcome?i=${pk.slice(2)}`;
 
@@ -44,7 +53,8 @@ export async function claimSignature(pk: Hex, account: Address): Promise<Hex> {
  */
 export async function expiryFromNow(seconds: number): Promise<bigint> {
   const { timestamp } = await publicClient.getBlock();
-  return timestamp + BigInt(seconds) - 60n;
+  // A minute of slack only at the 7-day cap, so a 5-minute link really lasts 5 minutes.
+  return timestamp + BigInt(seconds) - (seconds >= 7 * 24 * 3600 ? 60n : 0n);
 }
 
 // The creator keeps each invite's private key on this device, to show the link again later.
@@ -72,13 +82,21 @@ export function newInvite(): { pk: Hex; key: Address } {
   return { pk, key: inviteKeyOf(pk) };
 }
 
-/** A member invites one person, locking `amount` (may be 0) until it is claimed or closed. */
-export async function createMemberInvite(identity: AccountInput, amount: bigint, seconds: number): Promise<Hex> {
+/**
+ * A member locks `amount` (may be 0) for one person until it is claimed or closed: a newcomer
+ * (an invite), or with `openToMembers` also an existing member (a payment by link).
+ */
+export async function createMemberInvite(
+  identity: AccountInput,
+  amount: bigint,
+  seconds: number,
+  openToMembers = false,
+): Promise<Hex> {
   const { pk, key } = newInvite();
   const expiresAt = await expiryFromNow(seconds);
   const create = {
     to: deployment.invites,
-    data: encodeFunctionData({ abi: invitesAbi, functionName: "create", args: [key, amount, expiresAt] }),
+    data: encodeFunctionData({ abi: invitesAbi, functionName: "create", args: [key, amount, expiresAt, openToMembers] }),
   };
   const approve = {
     to: deployment.token.address,

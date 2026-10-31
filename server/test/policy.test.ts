@@ -39,13 +39,13 @@ test("approve is only sponsored for Invites, and unknown targets are refused", (
 
 test("creating an invite is sponsored, and the claim is found in a signup batch", () => {
   const invitesAbi = parseAbi([
-    "function create(address key, uint256 amount, uint64 expiresAt)",
+    "function create(address key, uint256 amount, uint64 expiresAt, bool openToMembers)",
     "function claim(address key, bytes signature)",
   ]);
   const key: Address = "0x00000000000000000000000000000000000000c1";
   const create = batch([
     { to: deployment.token.address, data: encodeFunctionData({ abi: erc20, functionName: "approve", args: [deployment.invites, 5n] }) },
-    { to: deployment.invites, data: encodeFunctionData({ abi: invitesAbi, functionName: "create", args: [key, 5n, 1n] }) },
+    { to: deployment.invites, data: encodeFunctionData({ abi: invitesAbi, functionName: "create", args: [key, 5n, 1n, true] }) },
   ]);
   assert.equal(checkCalls(create).length, 2);
   assert.equal(findClaim(create), null);

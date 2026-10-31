@@ -69,8 +69,10 @@ afterwards; it is only a local dry run.
   invites lock coins (0 is fine, `approve` is sponsored only towards Invites) and are
   capped per member; bank invites mint per claim and can be multi-use, for new accounts only
   or open to existing members once each (`openToMembers`; members claim at `#/welcome?i=…`
-  while signed in, `ClaimLink`). Expired member invites are refunded by the server keeper
-  (`refundExpiredInvites`).
+  while signed in, `ClaimLink`). A member link open to members is a payment by link
+  (Pagar → "Pagar com link", `PayLink`, 5 min by default). Expired member invites are
+  refunded by the server keeper (`refundExpiredInvites`), on whichever Invites contract
+  holds them, so a contract swap never strands locked coins.
 - **Never drop accounts or passkeys; plan every change for migration.** Accounts (Safes),
   coins (token), names and passkeys (MemberDirectory + Safe owners) must survive contract
   changes. Replace a contract on its own and carry its state over rather than redeploying
