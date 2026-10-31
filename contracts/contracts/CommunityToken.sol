@@ -9,11 +9,15 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 /// @title CommunityToken
 /// @notice Freely transferable community currency. Only accounts holding MINTER_ROLE
 ///         (the central bank Safe and the policy contracts it authorizes) can mint.
+///         Accounts holding ENFORCER_ROLE (the central bank) can confiscate (burn) a member's
+///         coins or move them between accounts without consent. Each use carries a written
+///         reason in its event, so the app's transparency page shows every one of them.
 ///         Supports EIP-2612 permit and EIP-3009 transferWithAuthorization so that
 ///         members using an external wallet can send without holding gas: they sign,
 ///         a relayer submits. Signatures from smart accounts are accepted via ERC-1271.
 contract CommunityToken is ERC20, ERC20Permit, AccessControl {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant ENFORCER_ROLE = keccak256("ENFORCER_ROLE");
 
     // keccak256("TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)")
     bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH =
@@ -29,12 +33,15 @@ contract CommunityToken is ERC20, ERC20Permit, AccessControl {
 
     event AuthorizationUsed(address indexed authorizer, bytes32 indexed nonce);
     event AuthorizationCanceled(address indexed authorizer, bytes32 indexed nonce);
+    event Confiscated(address indexed from, uint256 amount, string reason);
+    event ForcedTransfer(address indexed from, address indexed to, uint256 amount, string reason);
 
     error AuthorizationNotYetValid();
     error AuthorizationExpired();
     error AuthorizationAlreadyUsed();
     error InvalidSignature();
     error CallerMustBePayee();
+    error ReasonRequired();
 
     constructor(string memory name_, string memory symbol_, address centralBank)
         ERC20(name_, symbol_)
@@ -42,11 +49,31 @@ contract CommunityToken is ERC20, ERC20Permit, AccessControl {
     {
         _grantRole(DEFAULT_ADMIN_ROLE, centralBank);
         _grantRole(MINTER_ROLE, centralBank);
+        _grantRole(ENFORCER_ROLE, centralBank);
     }
 
     /// @notice Mint new tokens to a member or to a contract.
     function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
         _mint(to, amount);
+    }
+
+    // ---------------------------------------------------------------- enforcement
+
+    /// @notice Burn `amount` from `from` without its consent.
+    function confiscate(address from, uint256 amount, string calldata reason) external onlyRole(ENFORCER_ROLE) {
+        if (bytes(reason).length == 0) revert ReasonRequired();
+        _burn(from, amount);
+        emit Confiscated(from, amount, reason);
+    }
+
+    /// @notice Move `amount` from `from` to `to` without the sender's consent.
+    function forceTransfer(address from, address to, uint256 amount, string calldata reason)
+        external
+        onlyRole(ENFORCER_ROLE)
+    {
+        if (bytes(reason).length == 0) revert ReasonRequired();
+        _transfer(from, to, amount);
+        emit ForcedTransfer(from, to, amount, reason);
     }
 
     // ---------------------------------------------------------------- EIP-3009

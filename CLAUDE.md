@@ -10,7 +10,7 @@ covers setup.
 
 ```
 contracts/    Hardhat 3, Solidity 0.8.28. Token, RecoveryModule, MemberDirectory, AllowanceMinter
-server/       Node + Hono. Sponsorship policy, bundler/paymaster proxy, EIP-3009 relayer,
+server/       Node + Hono. Sponsorship policy, paymaster proxy, minimal bundler, EIP-3009 relayer,
               invites, log indexer, Web Push, recovery keeper
 app/          Vite + Preact PWA. UI copy is Brazilian Portuguese
 deployments/  <chainId>.json (addresses) + abis.json, written by contracts/scripts/deploy.ts
@@ -91,9 +91,13 @@ afterwards; it is only a local dry run.
 
 - Hardhat compiles with `node_modules/solc/soljson.js` (see `hardhat.config.ts`), so it
   works without downloading a compiler. If you bump solc, bump the npm `solc` package too.
-- Chiado has no official Safe passkey or 4337 module deployments. `deploy.ts` deploys
-  copies where the canonical address is empty, and the addresses in
+- Chiado has no official Safe 1.4.1 (only 1.3.0), passkey or 4337 module deployments.
+  `deploy.ts` deploys copies where the canonical address is empty, and the addresses in
   `deployments/10200.json` are the ones to use.
+- On Chiado, Pimlico's `pimlico_getUserOperationGasPrice` and `eth_sendUserOperation` return
+  "Internal error from bundler" (its paymaster and gas estimation work). So the server
+  computes fees from the node when the gas price call fails (`userOpGasPrice`) and submits
+  operations itself (`bundler.ts`). Every upstream error is logged as `upstream <method>`.
 - The P-256 verifier config is the verifier address only (`p256Verifiers` in
   app/src/config.ts), with no RIP-7212 precompile flag. Keep the app and the server's
   `checkDeployment` in agreement.
@@ -105,8 +109,12 @@ afterwards; it is only a local dry run.
 ## Status
 
 - Built: roadmap steps 1 to 3 (contracts, PWA MVP, devices and recovery).
-- Tests: 21 Solidity tests pass, and the server policy tests pass.
-- Not yet exercised end to end on Chiado or in a real browser. Run the first passkey
-  signup on Chiado before trusting any of it.
-- Not built: the WhatsApp bot, a self-hosted bundler and paymaster, and a guardian "force
+- Tests: 26 Solidity tests pass, and the server policy tests pass.
+- Exercised on Chiado: deploy, passkey signup in Chrome (Safe deployed through the
+  server's own bundler). Not yet exercised: payments between members, devices, recovery,
+  and the bank's enforcement actions.
+- The central bank can mint, confiscate (burn), force transfers and take control of an
+  account at once (no delay, no cancel). Each coercive action needs a reason, which the
+  transparency page shows.
+- Not built: the WhatsApp bot, a self-hosted paymaster, and a guardian "force
   recovery" path (today a stolen device can cancel a pending recovery).

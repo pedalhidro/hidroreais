@@ -127,7 +127,7 @@ function Hero() {
       <div class="coin-mark" aria-hidden="true">
         {symbol}
       </div>
-      <h1>Moeda da comunidade</h1>
+      <h1>Hidroreais</h1>
       <p>Pague e receba dos amigos pelo celular. Sem taxas, sem banco, sem frase secreta.</p>
     </section>
   );

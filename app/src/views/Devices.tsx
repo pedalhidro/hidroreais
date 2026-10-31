@@ -95,7 +95,7 @@ export function Devices({ identity }: { identity: Identity }) {
         Adicionar um aparelho
       </button>
       <p class="fine">
-        No aparelho novo, abra a moeda e escolha “Adicionar este aparelho a uma conta”. Depois escaneie o código que
+        No aparelho novo, abra o Hidroreais e escolha “Adicionar este aparelho a uma conta”. Depois escaneie o código que
         aparecer lá.
       </p>
       {error && <Notice tone="error">{error}</Notice>}

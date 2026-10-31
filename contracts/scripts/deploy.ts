@@ -6,7 +6,7 @@
  * Env:
  *   BANK_ADDRESS        central bank Safe (or, while testing, an EOA). Gets admin + MINTER_ROLE
  *                       on the token and is the recovery guardian.
- *   TOKEN_NAME/SYMBOL   default "Community Coin" / "COIN"
+ *   TOKEN_NAME/SYMBOL   default "Hidroreais" / "PHR"
  *   RECOVERY_DELAY      seconds, default 0 (instant recovery while testing)
  *   ALLOWANCE           optional, tokens per member per epoch for the example AllowanceMinter
  *   EPOCH_DAYS          default 7
@@ -23,6 +23,7 @@ const require = createRequire(import.meta.url);
 
 // Canonical addresses (deterministic deployments, same on every chain that has them).
 const ENTRY_POINT_V07 = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
+// Safe 1.4.1 core. Present on Gnosis (100); Chiado only has 1.3.0, so we deploy copies there.
 const SAFE_1_4_1 = {
   safeSingleton: "0x41675C099F32341bf84BFc5382aF534df5C7461a",
   safeProxyFactory: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
@@ -37,6 +38,7 @@ const SAFE_MODULES = {
   webAuthnSignerFactory: "0x1d31F259eE307358a26dFb23EB365939E8641195", // passkey v0.2.1
   p256Verifier: "0xc2b78104907F722DABAc4C69f826a522B2754De4", // Daimo, passkey v0.2.1
 } as const;
+const CANONICAL = { ...SAFE_1_4_1, ...SAFE_MODULES } as const;
 
 function artifact(path: string): { abi: unknown[]; bytecode: Hex } {
   return require(path);
@@ -50,24 +52,33 @@ const chainId = await publicClient.getChainId();
 const bankEnv = process.env.BANK_ADDRESS;
 if (!bankEnv || !isAddress(bankEnv, { strict: false })) throw new Error("Set BANK_ADDRESS to the central bank Safe (or a test EOA)");
 const bank = getAddress(bankEnv);
-const name = process.env.TOKEN_NAME ?? "Community Coin";
-const symbol = process.env.TOKEN_SYMBOL ?? "COIN";
+const name = process.env.TOKEN_NAME ?? "Hidroreais";
+const symbol = process.env.TOKEN_SYMBOL ?? "PHR";
 const recoveryDelay = BigInt(process.env.RECOVERY_DELAY ?? "0");
 
 const hasCode = async (a: Address) => ((await publicClient.getCode({ address: a })) ?? "0x") !== "0x";
 
 console.log(`Chain ${chainId}, deployer ${deployer.account.address}, bank ${bank}`);
 
-// 1. Required infrastructure must already exist (skipped for a local dry run on 31337).
+// 1. The EntryPoint must already exist (skipped for a local dry run on 31337).
 const isLocal = chainId === 31337;
-for (const [label, addr] of Object.entries({ entryPoint: ENTRY_POINT_V07, ...SAFE_1_4_1 })) {
-  if (!isLocal && !(await hasCode(addr))) throw new Error(`${label} (${addr}) is not deployed on chain ${chainId}`);
+if (!isLocal && !(await hasCode(ENTRY_POINT_V07))) {
+  throw new Error(`entryPoint (${ENTRY_POINT_V07}) is not deployed on chain ${chainId}`);
 }
 
-// 2. Safe 4337 + passkey modules: reuse the official ones, deploy our own copies where missing.
-async function ensure(label: keyof typeof SAFE_MODULES, deploy: () => Promise<Address>): Promise<Address> {
-  const canonical = SAFE_MODULES[label];
+// 2. Safe 1.4.1 + 4337 + passkey contracts: reuse the official ones, deploy our own copies where missing.
+// Copies from an earlier deployment on this chain are reused, so a redeploy only adds our contracts.
+const file = new URL(`../../deployments/${chainId}.json`, import.meta.url);
+const previous: { aa?: Record<string, Address> } | null = await readFile(file, "utf8").then(JSON.parse, () => null);
+
+async function ensure(label: keyof typeof CANONICAL, deploy: () => Promise<Address>): Promise<Address> {
+  const canonical = CANONICAL[label];
   if (await hasCode(canonical)) return canonical;
+  const earlier = previous?.aa?.[label];
+  if (earlier && (await hasCode(earlier))) {
+    console.log(`  ${label} reusing the copy at ${earlier}`);
+    return earlier;
+  }
   console.log(`  ${label} missing on this chain, deploying a copy…`);
   return deploy();
 }
@@ -81,7 +92,20 @@ async function deployArtifact(path: string, args: unknown[] = []): Promise<Addre
 
 const aa = {
   entryPoint: ENTRY_POINT_V07,
-  ...SAFE_1_4_1,
+  safeSingleton: await ensure("safeSingleton", () =>
+    deployArtifact("@safe-global/safe-contracts/build/artifacts/contracts/Safe.sol/Safe.json"),
+  ),
+  safeProxyFactory: await ensure("safeProxyFactory", () =>
+    deployArtifact("@safe-global/safe-contracts/build/artifacts/contracts/proxies/SafeProxyFactory.sol/SafeProxyFactory.json"),
+  ),
+  multiSend: await ensure("multiSend", () =>
+    deployArtifact("@safe-global/safe-contracts/build/artifacts/contracts/libraries/MultiSend.sol/MultiSend.json"),
+  ),
+  multiSendCallOnly: await ensure("multiSendCallOnly", () =>
+    deployArtifact(
+      "@safe-global/safe-contracts/build/artifacts/contracts/libraries/MultiSendCallOnly.sol/MultiSendCallOnly.json",
+    ),
+  ),
   safe4337Module: await ensure("safe4337Module", () =>
     deployArtifact("@safe-global/safe-4337/build/artifacts/contracts/Safe4337Module.sol/Safe4337Module.json", [
       ENTRY_POINT_V07,
@@ -137,7 +161,6 @@ const out = {
   allowanceMinter,
   aa,
 };
-const file = new URL(`../../deployments/${chainId}.json`, import.meta.url);
 await writeFile(file, JSON.stringify(out, null, 2) + "\n");
 console.log(`\nWrote ${file.pathname}`);
 

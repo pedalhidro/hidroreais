@@ -1,0 +1,26 @@
+{
+  "chainId": 10200,
+  "startBlock": 23779765,
+  "bank": "0xfCBf4266C233e42970B6818ad22cbAc7e467b8BD",
+  "token": {
+    "address": "0xd57a8b0a6b50e3bff910366c67cc8bde3f0466f4",
+    "name": "Hidroreais",
+    "symbol": "PHR",
+    "decimals": 18
+  },
+  "recoveryModule": "0xb9dc7b154ac1d89f10942cc84a46d7c016e6cebf",
+  "directory": "0x0dae0ffe307c072bd2ae33b420e5b2bf01859d89",
+  "allowanceMinter": "0xf8400190c26e014a393d8315755429350209435d",
+  "aa": {
+    "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+    "safeSingleton": "0x1da3c48a816e653ab2cf9600757d4f9f09209ef3",
+    "safeProxyFactory": "0x0e83fdc49b4b49f2111c188a0630284759ea0699",
+    "multiSend": "0x91e1631ad32dd452d1b2d639abf72cb4cca05b2b",
+    "multiSendCallOnly": "0x6904766e7f47f14a2302d29fa0f1e71c2265c882",
+    "safe4337Module": "0x7eef250f69dd46ae01cf882c932b632be2bb19c1",
+    "safeModuleSetup": "0x6d641547afba8c159374a91d19607920e5ec1799",
+    "webAuthnSharedSigner": "0x90cd435b578b1a53da365adc71eb175b858abffa",
+    "webAuthnSignerFactory": "0xd76adc6bb31758e9d7f7bf17cb8db6cec9cc6c7a",
+    "p256Verifier": "0xc2b78104907F722DABAc4C69f826a522B2754De4"
+  }
+}

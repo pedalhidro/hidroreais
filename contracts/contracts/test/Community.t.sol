@@ -58,6 +58,42 @@ contract CommunityTokenTest is Test {
         assertEq(token.balanceOf(bob), 5);
     }
 
+    function test_confiscateBurnsWithReason() public {
+        vm.expectEmit(address(token));
+        emit CommunityToken.Confiscated(alice, 40 ether, "assembly 12/10");
+        vm.prank(bank);
+        token.confiscate(alice, 40 ether, "assembly 12/10");
+        assertEq(token.balanceOf(alice), 60 ether);
+        assertEq(token.totalSupply(), 60 ether);
+    }
+
+    function test_forceTransfer() public {
+        vm.expectEmit(address(token));
+        emit CommunityToken.ForcedTransfer(alice, bob, 30 ether, "refund of a disputed sale");
+        vm.prank(bank);
+        token.forceTransfer(alice, bob, 30 ether, "refund of a disputed sale");
+        assertEq(token.balanceOf(alice), 70 ether);
+        assertEq(token.balanceOf(bob), 30 ether);
+        assertEq(token.totalSupply(), 100 ether);
+    }
+
+    function test_enforcementNeedsRoleAndReason() public {
+        bytes32 role = token.ENFORCER_ROLE();
+        vm.startPrank(bob);
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, bob, role));
+        token.confiscate(alice, 1, "x");
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, bob, role));
+        token.forceTransfer(alice, bob, 1, "x");
+        vm.stopPrank();
+
+        vm.startPrank(bank);
+        vm.expectRevert(CommunityToken.ReasonRequired.selector);
+        token.confiscate(alice, 1, "");
+        vm.expectRevert(CommunityToken.ReasonRequired.selector);
+        token.forceTransfer(alice, bob, 1, "");
+        vm.stopPrank();
+    }
+
     function _sign(bytes32 typehash, address to, uint256 value, uint256 validBefore, bytes32 nonce)
         internal
         view
@@ -331,6 +367,43 @@ contract RecoveryModuleTest is Test {
         module.executeRecovery(address(memberSafe)); // anyone can execute
         assertTrue(memberSafe.isOwner(newPasskey));
         assertFalse(memberSafe.isOwner(owner));
+    }
+
+    function test_takeControlIgnoresDelayAndCannotBeCancelled() public {
+        vm.prank(guardian);
+        module.setRecoveryDelay(2 days);
+        address laptop = makeAddr("laptop");
+        _execAsOwner(memberSafe, address(memberSafe), abi.encodeCall(memberSafe.addOwnerWithThreshold, (laptop, 1)));
+        // A pending recovery is dropped by the takeover.
+        vm.prank(guardian);
+        module.initiateRecovery(address(memberSafe), makeAddr("newPasskeySigner"), false);
+
+        vm.expectEmit(address(module));
+        emit RecoveryModule.ControlTaken(address(memberSafe), guardian, "stolen phone reported");
+        vm.prank(guardian);
+        module.takeControl(address(memberSafe), guardian, "stolen phone reported");
+
+        address[] memory owners = memberSafe.getOwners();
+        assertEq(owners.length, 1);
+        assertEq(owners[0], guardian);
+        assertEq(memberSafe.getThreshold(), 1);
+
+        // Nothing left for the old devices to cancel, and nothing queued to execute later.
+        vm.expectRevert(RecoveryModule.NoPendingRecovery.selector);
+        vm.prank(address(memberSafe));
+        module.cancelRecovery();
+        vm.warp(block.timestamp + 2 days);
+        vm.expectRevert(RecoveryModule.NoPendingRecovery.selector);
+        module.executeRecovery(address(memberSafe));
+    }
+
+    function test_takeControlNeedsGuardianAndReason() public {
+        vm.expectRevert(RecoveryModule.OnlyGuardian.selector);
+        module.takeControl(address(memberSafe), makeAddr("x"), "reason");
+
+        vm.prank(guardian);
+        vm.expectRevert(RecoveryModule.ReasonRequired.selector);
+        module.takeControl(address(memberSafe), guardian, "");
     }
 
     function test_ownerCancelsDuringDelay() public {

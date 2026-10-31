@@ -39,6 +39,8 @@ export const rpcUrl: string = import.meta.env.VITE_RPC_URL ?? chain.rpcUrls.defa
 export const explorerUrl = chain.blockExplorers?.default.url ?? "";
 
 export const symbol = deployment.token.symbol;
+/** What amounts are shown in ("10 Hidroreais"). The symbol (PHR) is for wallets and the logo. */
+export const currency = deployment.token.name;
 
 /** P256 verifier config used for every passkey signer: no precompile, fallback contract only. */
 export const p256Verifiers = BigInt(deployment.aa.p256Verifier);

@@ -29,7 +29,7 @@ export function toPublicKey(x: bigint, y: bigint): Hex {
 export async function createPasskey(userName: string): Promise<Passkey> {
   const credential = await createWebAuthnCredential({
     name: userName,
-    rp: { id: location.hostname, name: "Moeda da Comunidade" },
+    rp: { id: location.hostname, name: "Hidroreais" },
     // A random user handle per passkey. The default derives it from the name, and synced
     // keychains replace an existing passkey that has the same site + user handle.
     user: { id: crypto.getRandomValues(new Uint8Array(16)), name: userName, displayName: userName },

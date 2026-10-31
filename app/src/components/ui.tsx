@@ -85,7 +85,8 @@ export function CopyButton(props: { text: string; label?: string }) {
 }
 
 export function ShareButton(props: { text: string; title: string }) {
-  if (!("share" in navigator)) return <CopyButton text={props.text} />;
+  // Always shown next to a CopyButton, so there is nothing to add where sharing is unsupported.
+  if (!("share" in navigator)) return null;
   return (
     <button class="btn btn-quiet" onClick={() => navigator.share({ title: props.title, url: props.text }).catch(() => {})}>
       Compartilhar

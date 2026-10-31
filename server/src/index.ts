@@ -2,7 +2,8 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { randomBytes } from "node:crypto";
-import { getAddress, isAddress, isAddressEqual, type Address } from "viem";
+import { getAddress, isAddress, isAddressEqual, toHex, type Address, type Hex } from "viem";
+import { getUserOperationReceipt, sendUserOperation } from "./bundler.js";
 import { config, deployment } from "./config.js";
 import { poll, publicClient, startIndexer } from "./indexer.js";
 import { PolicyError, checkCalls, checkDeployment, checkGas, type RpcUserOperation } from "./policy.js";
@@ -34,18 +35,38 @@ async function forward(req: RpcRequest) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(req),
   });
-  return res.json();
+  const json = (await res.json()) as { error?: { message?: string } };
+  if (json.error) console.warn(`upstream ${req.method}: ${json.error.message}`);
+  return json;
 }
 
 const rpcError = (id: RpcRequest["id"], message: string, code = -32000) => ({ jsonrpc: "2.0", id, error: { code, message } });
+
+type GasTier = { maxFeePerGas: Hex; maxPriorityFeePerGas: Hex };
+type GasPriceResponse = { result?: Record<"slow" | "standard" | "fast", GasTier>; error?: { message: string } };
+
+// Pimlico's gas price oracle fails on Chiado (base fee ~7 wei, tips mostly 0). Fall back to the
+// node's estimate, with a floor so the operation still gets bundled.
+const MIN_PRIORITY_FEE = 1_000_000_000n;
+let warnedGasFallback = false;
+async function userOpGasPrice(id: RpcRequest["id"]): Promise<GasPriceResponse> {
+  const res = (await forward({ jsonrpc: "2.0", id, method: "pimlico_getUserOperationGasPrice", params: [] })) as GasPriceResponse;
+  if (res.result) return res;
+  if (!warnedGasFallback) {
+    console.warn(`pimlico_getUserOperationGasPrice failed (${res.error?.message}), using node fees`);
+    warnedGasFallback = true;
+  }
+  const fees = await publicClient.estimateFeesPerGas();
+  const priority = fees.maxPriorityFeePerGas > MIN_PRIORITY_FEE ? fees.maxPriorityFeePerGas : MIN_PRIORITY_FEE;
+  const tier = { maxFeePerGas: toHex(fees.maxFeePerGas + priority), maxPriorityFeePerGas: toHex(priority) };
+  return { ...res, result: { slow: tier, standard: tier, fast: tier }, error: undefined };
+}
 
 // Current gas price, to refuse operations that ask the paymaster for inflated fees.
 let gasPrice: { at: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | undefined;
 async function currentGasPrice() {
   if (gasPrice && Date.now() - gasPrice.at < 20_000) return gasPrice;
-  const res = (await forward({ jsonrpc: "2.0", id: 0, method: "pimlico_getUserOperationGasPrice", params: [] })) as {
-    result: { fast: { maxFeePerGas: string; maxPriorityFeePerGas: string } };
-  };
+  const res = (await userOpGasPrice(0)) as Required<GasPriceResponse>;
   gasPrice = {
     at: Date.now(),
     maxFeePerGas: BigInt(res.result.fast.maxFeePerGas),
@@ -113,6 +134,15 @@ app.post("/rpc", async (c) => {
   const handle = async (req: RpcRequest) => {
     try {
       if (PAYMASTER_METHODS.has(req.method)) return await sponsor(req);
+      if (req.method === "pimlico_getUserOperationGasPrice") return await userOpGasPrice(req.id);
+      if (req.method === "eth_sendUserOperation") {
+        const [op, entryPoint] = (req.params ?? []) as [RpcUserOperation, Address];
+        return { jsonrpc: "2.0", id: req.id, result: await sendUserOperation(op, entryPoint) };
+      }
+      if (req.method === "eth_getUserOperationReceipt") {
+        const [hash] = (req.params ?? []) as [Hex];
+        return { jsonrpc: "2.0", id: req.id, result: await getUserOperationReceipt(hash) };
+      }
       if (BUNDLER_METHODS.has(req.method)) return await forward(req);
       return rpcError(req.id, `method ${req.method} not supported`, -32601);
     } catch (err) {
@@ -163,6 +193,7 @@ app.get("/transparency", (c) =>
   c.json({
     names: state.index.names,
     mints: state.index.activity.filter((x) => x.kind === "mint").slice(-200).reverse(),
+    enforcement: state.index.activity.filter((x) => x.kind === "confiscation" || x.kind === "forced").slice(-200).reverse(),
     recoveries: [...state.index.recoveries].reverse(),
     indexedBlock: state.index.lastBlock,
   }),
@@ -195,7 +226,8 @@ app.use("/admin/*", async (c, next) => {
 
 app.post("/admin/invites", async (c) => {
   const { count = 1, note } = (await c.req.json().catch(() => ({}))) as { count?: number; note?: string };
-  const codes = Array.from({ length: Math.min(Number(count), 200) }, () => randomBytes(9).toString("base64url"));
+  // Hex, not base64url: WhatsApp and Markdown linkifiers drop a trailing "_" or "-" from the link.
+  const codes = Array.from({ length: Math.min(Number(count), 200) }, () => randomBytes(8).toString("hex"));
   for (const code of codes) state.invites[code] = { createdAt: Date.now(), note };
   saveNow();
   return c.json({ codes });

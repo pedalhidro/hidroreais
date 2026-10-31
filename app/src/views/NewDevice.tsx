@@ -25,7 +25,7 @@ export function NewDevice() {
     setBusy(true);
     setError("");
     try {
-      const passkey = await createPasskey("Moeda da comunidade");
+      const passkey = await createPasskey("Hidroreais");
       const signer = await signerFor(passkey.x, passkey.y);
       const p = { credentialId: passkey.id, publicKey: passkey.publicKey, signer };
       setPendingDevice(p);
@@ -141,7 +141,7 @@ export function NewDevice() {
   return (
     <Screen title="Adicionar este aparelho" back="/">
       <h2>Com outro aparelho seu</h2>
-      <p>Abra a moeda no aparelho que você já usa, vá em “Aparelhos” e escaneie este código.</p>
+      <p>Abra o Hidroreais no aparelho que você já usa, vá em “Aparelhos” e escaneie este código.</p>
       <QR value={link} label="Código para adicionar este aparelho" />
       <div class="row">
         <CopyButton text={link} />

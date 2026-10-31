@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { encodeFunctionData, getAddress, isAddress, type Address } from "viem";
 import { Notice, Scanner, Screen } from "../components/ui";
-import { deployment, symbol, tokenAbi } from "../config";
+import { deployment, currency, tokenAbi } from "../config";
 import { sendCalls } from "../lib/account";
 import { api, balanceOf, type Member } from "../lib/chain";
 import { coins, friendlyError, parseAmount, sameAddress, short } from "../lib/format";
@@ -49,7 +49,7 @@ function PickRecipient({ identity, members }: { identity: Identity; members: Mem
             const r = routeFromScan(text);
             setScanning(false);
             if (r) go(r);
-            else setError("Esse código não é de pagamento da moeda.");
+            else setError("Esse código não é de pagamento do Hidroreais.");
           }}
         />
       </Screen>
@@ -127,7 +127,7 @@ function Confirm(props: { identity: Identity; to: Address; name: string | null; 
           </div>
           <h1>Pago</h1>
           <p>
-            {who} recebeu {coins(value)} {symbol}.
+            {who} recebeu {coins(value)} {currency}.
           </p>
           <a class="btn btn-primary" href="#/">
             Voltar ao início
@@ -141,7 +141,7 @@ function Confirm(props: { identity: Identity; to: Address; name: string | null; 
     <Screen title={`Pagar ${who}`} back="/pay">
       <form class="stack" onSubmit={pay}>
         <label class="field field-amount">
-          <span>Valor em {symbol}</span>
+          <span>Valor em {currency}</span>
           <input
             inputMode="decimal"
             autoFocus
@@ -150,10 +150,10 @@ function Confirm(props: { identity: Identity; to: Address; name: string | null; 
             onInput={(e) => setAmount(e.currentTarget.value)}
           />
         </label>
-        {balance !== null && <p class="fine">Seu saldo: {coins(balance)} {symbol}</p>}
+        {balance !== null && <p class="fine">Seu saldo: {coins(balance)} {currency}</p>}
         {self && <Notice>Este é o seu próprio código.</Notice>}
         <button class="btn btn-primary" disabled={busy || !value || self}>
-          {busy ? "Confirmando…" : value ? `Pagar ${coins(value)} ${symbol}` : "Pagar"}
+          {busy ? "Confirmando…" : value ? `Pagar ${coins(value)} ${currency}` : "Pagar"}
         </button>
         <p class="fine">Você confirma com Face ID, digital ou bloqueio de tela. Não há taxa.</p>
       </form>

@@ -15,7 +15,7 @@ self.addEventListener("push", (event) => {
     try {
       return event.data?.json() as { title: string; body: string; url?: string };
     } catch {
-      return { title: "Moeda da comunidade", body: event.data?.text() ?? "" };
+      return { title: "Hidroreais", body: event.data?.text() ?? "" };
     }
   })();
   event.waitUntil(

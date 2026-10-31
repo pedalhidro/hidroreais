@@ -1,18 +1,22 @@
 /**
  * Gasless sends for members using an external wallet (MetaMask, Rabby, …): the member signs
  * an EIP-3009 TransferWithAuthorization message, the relayer submits it and pays the xDAI.
- * Keep the relayer key's balance small; the central bank tops it up.
+ * The same key submits user operations (bundler.ts). Keep its balance small; the central bank
+ * tops it up.
  */
-import { createWalletClient, getAddress, http, isAddress, isHex, type Hex } from "viem";
+import { createWalletClient, getAddress, http, isAddress, isHex, nonceManager, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { abis, config, deployment } from "./config.js";
 import { publicClient } from "./indexer.js";
 import { consume, isMember, state } from "./store.js";
 
-const account = privateKeyToAccount(config.relayerPrivateKey);
+// The nonce manager keeps concurrent sends (relays, user operations, the keeper) from colliding.
+const account = privateKeyToAccount(config.relayerPrivateKey, { nonceManager });
 const wallet = createWalletClient({ account, chain: config.chain, transport: http(config.rpcUrl) });
 
 export const relayerAddress = account.address;
+export const relayerAccount = account;
+export const relayerWallet = wallet;
 
 export type RelayRequest = {
   from: string;

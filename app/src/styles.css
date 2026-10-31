@@ -1,5 +1,5 @@
 /*
-  Moeda da comunidade — azulejo palette.
+  Hidroreais — azulejo palette.
   One bold element: the cobalt balance tile with a Portuguese-tile pattern. Everything else
   stays quiet: paper background, hairline lists, plain sentence-case copy.
 */
@@ -110,8 +110,10 @@ p {
 }
 .tile-balance {
   display: flex;
+  flex-wrap: wrap; /* a long balance pushes the currency name onto its own line */
   align-items: baseline;
-  gap: 10px;
+  column-gap: 10px;
+  row-gap: 4px;
   margin-top: 6px;
 }
 .tile-amount {
@@ -321,6 +323,13 @@ p {
 }
 .activity li.in .amount {
   color: var(--green);
+}
+/* Why the central bank confiscated, moved or took over: shown wherever the action appears. */
+.reason {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 .empty {
   color: var(--muted);

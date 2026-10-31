@@ -6,7 +6,7 @@ A central bank (a Safe multisig) mints the token and is every member's recovery 
 
 ```
 contracts/    Solidity: token, recovery module, member directory, allowance minter (+ tests)
-server/       Sponsorship policy, bundler/paymaster proxy, EIP-3009 relayer, indexer, Web Push
+server/       Sponsorship policy, paymaster proxy, minimal bundler, EIP-3009 relayer, indexer, Web Push
 app/          The PWA members use (pt-BR)
 deployments/  Addresses + ABIs written by the deploy script, read by app and server
 ```
@@ -15,11 +15,11 @@ deployments/  Addresses + ABIs written by the deploy script, read by app and ser
 
 | Step | Built |
 | --- | --- |
-| 1. Contracts | `CommunityToken` (ERC-20, `MINTER_ROLE`, EIP-2612, EIP-3009), `RecoveryModule` (central bank as guardian; delay 0 = instant while testing), `MemberDirectory` (names + passkey lookup), `AllowanceMinter` (example policy minter). 20 Solidity tests. |
+| 1. Contracts | `CommunityToken` (ERC-20, `MINTER_ROLE`, `ENFORCER_ROLE` for confiscation and forced transfers, EIP-2612, EIP-3009), `RecoveryModule` (central bank as guardian; delay 0 = instant while testing; `takeControl` for immediate takeovers), `MemberDirectory` (names + passkey lookup), `AllowanceMinter` (example policy minter). 26 Solidity tests. |
 | 2. PWA MVP | Invite → passkey → Safe account, pay by name / QR / link, receive QR + link, activity, gas sponsored for everything, external-wallet sends via EIP-3009 relayer. |
 | 3. Devices + recovery | Link a new device by QR (WhatsApp Web style), remove devices, central bank recovery console (Safe Transaction Builder export or direct send), cancel-during-delay banner, transparency page, Web Push for payments and recoveries. |
 
-Not built yet: the WhatsApp bot, self-hosted bundler/paymaster.
+Not built yet: the WhatsApp bot, a self-hosted paymaster.
 
 ## How the pieces fit
 
@@ -40,6 +40,9 @@ Not built yet: the WhatsApp bot, self-hosted bundler/paymaster.
   so a cancelled Face ID prompt does not burn it. New Safes must match the app's exact setup
   (one passkey owner, the 4337 module, the RecoveryModule). Gas prices and limits are capped,
   and per-member daily limits apply.
+- **Bundling.** The server submits sponsored operations to the EntryPoint itself, from the
+  relayer key (`server/src/bundler.ts`). Pimlico only signs the sponsorship and estimates gas.
+  The EntryPoint refunds the relayer from the paymaster deposit.
 - **External wallets.** EIP-3009 sends are relayed only for addresses registered as members
   (`POST /admin/members`), with per-wallet and global daily caps.
 - **Recovery keeper.** When the recovery delay is above zero, the server executes queued
@@ -58,8 +61,8 @@ npx hardhat keystore set CHIADO_RPC_URL        # https://rpc.chiadochain.net
 npx hardhat keystore set DEPLOYER_PRIVATE_KEY
 BANK_ADDRESS=0xYourBank ALLOWANCE=10 npx hardhat run scripts/deploy.ts --network chiado
 # → writes ../deployments/10200.json and ../deployments/abis.json
-# The script reuses Safe's official 4337 + passkey contracts where they exist and deploys
-# copies where they don't (Chiado has none of the passkey contracts).
+# The script reuses Safe's official 1.4.1, 4337 and passkey contracts where they exist and
+# deploys copies where they don't (Chiado has none of them).
 
 # 2. Server
 cd ../server && npm install

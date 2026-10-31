@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { encodeFunctionData } from "viem";
 import { Notice, Screen } from "../components/ui";
-import { deployment, explorerUrl, recoveryAbi, symbol } from "../config";
+import { deployment, explorerUrl, recoveryAbi, currency } from "../config";
 import { sendCalls } from "../lib/account";
 import { api, balanceOf, pendingRecovery, type ActivityItem, type PendingRecovery } from "../lib/chain";
 import { coins, friendlyError, nameOr, sameAddress } from "../lib/format";
@@ -51,7 +51,7 @@ export function Home({ identity }: { identity: Identity }) {
         <p class="tile-who">{myName ? `Olá, ${myName}` : "Seu saldo"}</p>
         <p class="tile-balance">
           <span class="tile-amount">{balance === null ? "—" : coins(balance)}</span>
-          <span class="tile-symbol">{symbol}</span>
+          <span class="tile-symbol">{currency}</span>
         </p>
       </section>
 
@@ -76,12 +76,24 @@ export function Home({ identity }: { identity: Identity }) {
           <ul>
             {items.map((it) => {
               const incoming = sameAddress(it.to, identity.safe);
+              const other = nameOr(names, incoming ? it.from : it.to);
               const who =
-                it.kind === "mint" ? "Banco central" : nameOr(names, incoming ? it.from : it.to);
+                it.kind === "mint"
+                  ? "Banco central"
+                  : it.kind === "confiscation"
+                    ? "Confiscado pelo banco central"
+                    : it.kind === "forced"
+                      ? `${incoming ? `De ${other}` : `Para ${other}`}, pelo banco central`
+                      : incoming
+                        ? other
+                        : `Para ${other}`;
               return (
                 <li key={`${it.tx}-${it.from}-${it.to}`} class={incoming ? "in" : "out"}>
                   <a href={`${explorerUrl}/tx/${it.tx}`} target="_blank" rel="noreferrer">
-                    <span class="who">{incoming ? who : `Para ${who}`}</span>
+                    <span class="who">
+                      {who}
+                      {it.reason && <span class="reason">Motivo: {it.reason}</span>}
+                    </span>
                     <span class="amount">
                       {incoming ? "+" : "−"}
                       {coins(it.value)}
@@ -150,7 +162,7 @@ function PushPrompt({ identity }: { identity: Identity }) {
     return (
       <Notice>
         Para receber avisos de pagamento no iPhone, toque em Compartilhar e depois em “Adicionar à Tela de Início”, e
-        abra a moeda por lá.
+        abra o Hidroreais por lá.
       </Notice>
     );
   }

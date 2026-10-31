@@ -27,10 +27,21 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export type Member = { address: Address; name: string | null };
-export type ActivityItem = { kind: "transfer" | "mint"; from: string; to: string; value: string; tx: string; block: number };
+/** confiscation: burned by the central bank; forced: moved by the central bank. Both carry a reason. */
+export type ActivityItem = {
+  kind: "transfer" | "mint" | "confiscation" | "forced";
+  from: string;
+  to: string;
+  value: string;
+  reason?: string;
+  tx: string;
+  block: number;
+};
 export type RecoveryItem = {
-  kind: "initiated" | "executed" | "cancelled";
+  /** taken: the central bank took control of the account (immediate, cannot be cancelled). */
+  kind: "initiated" | "executed" | "cancelled" | "taken";
   safe: string;
+  reason?: string;
   newOwner?: string;
   removeOthers?: boolean;
   executeAfter?: number;
@@ -47,9 +58,13 @@ export const api = {
   recoveries: (safe: Address) => get<RecoveryItem[]>(`/recoveries/${safe}`),
   recoveredBy: (owner: Address) => get<RecoveryItem[]>(`/recovered-by/${owner}`),
   transparency: () =>
-    get<{ names: Record<string, string>; mints: ActivityItem[]; recoveries: RecoveryItem[]; indexedBlock: number }>(
-      "/transparency",
-    ),
+    get<{
+      names: Record<string, string>;
+      mints: ActivityItem[];
+      enforcement: ActivityItem[];
+      recoveries: RecoveryItem[];
+      indexedBlock: number;
+    }>("/transparency"),
 };
 
 // ------------------------------------------------------------------ chain reads

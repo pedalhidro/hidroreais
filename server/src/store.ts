@@ -4,18 +4,22 @@ import type { PushSubscription } from "web-push";
 import { config } from "./config.js";
 
 export type Activity = {
-  kind: "transfer" | "mint";
+  /** confiscation: burned by the central bank; forced: moved by the central bank. */
+  kind: "transfer" | "mint" | "confiscation" | "forced";
   from: string;
   to: string;
   value: string; // wei, decimal string
+  reason?: string;
   tx: string;
   block: number;
   timestamp?: number;
 };
 
 export type RecoveryEvent = {
-  kind: "initiated" | "executed" | "cancelled";
+  /** taken: the central bank took control (immediate, cannot be cancelled). */
+  kind: "initiated" | "executed" | "cancelled" | "taken";
   safe: string;
+  reason?: string;
   newOwner?: string;
   removeOthers?: boolean;
   executeAfter?: number;

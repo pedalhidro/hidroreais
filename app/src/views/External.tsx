@@ -9,7 +9,7 @@ import {
   type EIP1193Provider,
 } from "viem";
 import { Notice, Screen } from "../components/ui";
-import { chain, deployment, serverUrl, symbol } from "../config";
+import { chain, currency, deployment, serverUrl, symbol } from "../config";
 import { api, balanceOf, type Member } from "../lib/chain";
 import { coins, friendlyError, parseAmount, short } from "../lib/format";
 import type { Route } from "../lib/router";
@@ -126,7 +126,7 @@ export function External({ route }: { route: Route }) {
     <Screen title="Usar outra carteira" back="/">
       {!account ? (
         <>
-          <p>Conecte sua carteira para pagar em {symbol} sem precisar de xDAI para a taxa.</p>
+          <p>Conecte sua carteira para pagar em {currency} sem precisar de xDAI para a taxa.</p>
           <button class="btn btn-primary" onClick={connect}>
             Conectar carteira
           </button>
@@ -134,7 +134,7 @@ export function External({ route }: { route: Route }) {
       ) : (
         <form class="stack" onSubmit={send}>
           <p>
-            Conectado: {short(account)} · saldo {balance === null ? "…" : coins(balance)} {symbol}{" "}
+            Conectado: {short(account)} · saldo {balance === null ? "…" : coins(balance)} {currency}{" "}
             <button type="button" class="btn btn-link" onClick={addToken}>
               Mostrar {symbol} na carteira
             </button>
@@ -151,7 +151,7 @@ export function External({ route }: { route: Route }) {
             </select>
           </label>
           <label class="field">
-            <span>Valor em {symbol}</span>
+            <span>Valor em {currency}</span>
             <input inputMode="decimal" value={amount} onInput={(e) => setAmount(e.currentTarget.value)} />
           </label>
           <button class="btn btn-primary">Assinar e pagar</button>

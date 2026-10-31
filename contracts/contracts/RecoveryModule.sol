@@ -20,6 +20,9 @@ interface ISafe {
 ///         (production), it is queued; any existing owner of the Safe can cancel it during the
 ///         delay by having the Safe call cancelRecovery(), and anyone can execute it afterwards.
 ///         Raising the delay is a setting change, not a redeployment.
+///
+///         takeControl() is the guardian's coercive path: it replaces every owner at once,
+///         ignoring the delay, and cannot be cancelled. It requires a public reason.
 contract RecoveryModule {
     address internal constant SENTINEL = address(0x1);
 
@@ -38,6 +41,7 @@ contract RecoveryModule {
     event RecoveryInitiated(address indexed safe, address indexed newOwner, bool removeOthers, uint64 executeAfter);
     event RecoveryExecuted(address indexed safe, address indexed newOwner, bool removeOthers);
     event RecoveryCancelled(address indexed safe);
+    event ControlTaken(address indexed safe, address indexed newOwner, string reason);
 
     error OnlyGuardian();
     error ModuleNotEnabled();
@@ -45,6 +49,7 @@ contract RecoveryModule {
     error NoPendingRecovery();
     error RecoveryNotReady();
     error SafeCallFailed();
+    error ReasonRequired();
 
     modifier onlyGuardian() {
         if (msg.sender != guardian) revert OnlyGuardian();
@@ -79,6 +84,7 @@ contract RecoveryModule {
         if (recoveryDelay == 0) {
             delete pending[safe];
             _execute(safe, newOwner, removeOthers);
+            emit RecoveryExecuted(safe, newOwner, removeOthers);
             return;
         }
         uint64 executeAfter = uint64(block.timestamp) + recoveryDelay;
@@ -93,6 +99,19 @@ contract RecoveryModule {
         if (block.timestamp < r.executeAfter) revert RecoveryNotReady();
         delete pending[safe];
         _execute(safe, r.newOwner, r.removeOthers);
+        emit RecoveryExecuted(safe, r.newOwner, r.removeOthers);
+    }
+
+    /// @notice Make `newOwner` the only owner of a member Safe, now. Unlike a recovery this
+    ///         ignores the delay and the member cannot cancel it; a pending recovery is dropped.
+    /// @param newOwner The bank itself (to hold the account) or a signer it chooses.
+    function takeControl(address safe, address newOwner, string calldata reason) external onlyGuardian {
+        if (bytes(reason).length == 0) revert ReasonRequired();
+        if (!ISafe(safe).isModuleEnabled(address(this))) revert ModuleNotEnabled();
+        if (newOwner == address(0) || newOwner == SENTINEL || newOwner == safe) revert InvalidOwner();
+        delete pending[safe];
+        _execute(safe, newOwner, true);
+        emit ControlTaken(safe, newOwner, reason);
     }
 
     /// @notice Called by the member Safe itself (signed by any current owner) to cancel.
@@ -122,7 +141,6 @@ contract RecoveryModule {
                 _call(s, abi.encodeWithSignature("removeOwner(address,address,uint256)", prev, owners[i], 1));
             }
         }
-        emit RecoveryExecuted(safe, newOwner, removeOthers);
     }
 
     function _call(ISafe s, bytes memory data) private {

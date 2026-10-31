@@ -13,7 +13,7 @@ import {
   type Hex,
 } from "viem";
 import { Notice, Screen } from "../components/ui";
-import { chain, deployment, p256Verifiers, recoveryAbi, symbol, tokenAbi } from "../config";
+import { chain, deployment, p256Verifiers, recoveryAbi, currency, tokenAbi } from "../config";
 import { api, recoveryDelay, signerFactoryAbi, signerFor, type Member } from "../lib/chain";
 import { friendlyError, parseAmount, short } from "../lib/format";
 import { decodeDevice } from "../lib/links";
@@ -29,7 +29,7 @@ type Call = { to: Address; data: Hex; label: string };
  */
 export function Bank({ route }: { route: Route }) {
   const recoverParam = route.query.get("recover");
-  const [tab, setTab] = useState<"mint" | "recover" | "settings">(recoverParam ? "recover" : "mint");
+  const [tab, setTab] = useState<"mint" | "enforce" | "recover" | "settings">(recoverParam ? "recover" : "mint");
   const [members, setMembers] = useState<Member[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
   useEffect(() => {
@@ -46,7 +46,8 @@ export function Bank({ route }: { route: Route }) {
         {(
           [
             ["mint", "Emitir"],
-            ["recover", "Recuperar conta"],
+            ["enforce", "Fiscalizar"],
+            ["recover", "Recuperar"],
             ["settings", "Ajustes"],
           ] as const
         ).map(([key, label]) => (
@@ -65,6 +66,7 @@ export function Bank({ route }: { route: Route }) {
         ))}
       </div>
       {tab === "mint" && <MintForm members={members} onCalls={setCalls} />}
+      {tab === "enforce" && <EnforceForm members={members} onCalls={setCalls} />}
       {tab === "recover" && <RecoverForm members={members} param={recoverParam} onCalls={setCalls} />}
       {tab === "settings" && <SettingsForm onCalls={setCalls} />}
       {calls.length > 0 && <Execute calls={calls} />}
@@ -116,18 +118,121 @@ function MintForm({ members, onCalls }: { members: Member[]; onCalls: (c: Call[]
           {
             to: deployment.token.address,
             data: encodeFunctionData({ abi: tokenAbi, functionName: "mint", args: [getAddress(to), value] }),
-            label: `Emitir ${amount} ${symbol} para ${short(to)}`,
+            label: `Emitir ${amount} ${currency} para ${short(to)}`,
           },
         ]);
       }}
     >
       <MemberPicker members={members} value={to} onChange={setTo} label="Para quem" />
       <label class="field">
-        <span>Quantidade em {symbol}</span>
+        <span>Quantidade em {currency}</span>
         <input inputMode="decimal" value={amount} onInput={(e) => setAmount(e.currentTarget.value)} />
       </label>
       <button class="btn btn-primary" disabled={!ok}>
         Preparar emissão
+      </button>
+    </form>
+  );
+}
+
+const enforceActions = {
+  confiscate: "Confiscar",
+  transfer: "Transferir à força",
+  takeover: "Tomar a conta",
+} as const;
+
+/** Coercive actions. Each one is public on the transparency page, with the reason given here. */
+function EnforceForm({ members, onCalls }: { members: Member[]; onCalls: (c: Call[]) => void }) {
+  const [action, setAction] = useState<keyof typeof enforceActions>("confiscate");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [newOwner, setNewOwner] = useState<string>(deployment.bank);
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const value = parseAmount(amount);
+  const why = reason.trim();
+  const ok =
+    isAddress(from, { strict: false }) &&
+    why.length > 0 &&
+    (action === "confiscate"
+      ? !!value
+      : action === "transfer"
+        ? !!value && isAddress(to, { strict: false })
+        : isAddress(newOwner, { strict: false }));
+
+  function prepare() {
+    if (!ok) return;
+    const target = getAddress(from);
+    if (action === "confiscate") {
+      return onCalls([
+        {
+          to: deployment.token.address,
+          data: encodeFunctionData({ abi: tokenAbi, functionName: "confiscate", args: [target, value!, why] }),
+          label: `Confiscar ${amount} ${currency} de ${short(from)}. Motivo: ${why}`,
+        },
+      ]);
+    }
+    if (action === "transfer") {
+      return onCalls([
+        {
+          to: deployment.token.address,
+          data: encodeFunctionData({ abi: tokenAbi, functionName: "forceTransfer", args: [target, getAddress(to), value!, why] }),
+          label: `Transferir ${amount} ${currency} de ${short(from)} para ${short(to)}. Motivo: ${why}`,
+        },
+      ]);
+    }
+    onCalls([
+      {
+        to: deployment.recoveryModule,
+        data: encodeFunctionData({ abi: recoveryAbi, functionName: "takeControl", args: [target, getAddress(newOwner), why] }),
+        label: `Tomar a conta ${short(from)}, deixando ${short(newOwner)} como único dono. Motivo: ${why}`,
+      },
+    ]);
+  }
+
+  return (
+    <form
+      class="stack"
+      onSubmit={(e) => {
+        e.preventDefault();
+        prepare();
+      }}
+    >
+      <Notice>Tudo o que for feito aqui aparece na página de transparência, com o motivo, e o membro recebe um aviso.</Notice>
+      <div class="stack" role="radiogroup" aria-label="Ação">
+        {(Object.keys(enforceActions) as (keyof typeof enforceActions)[]).map((key) => (
+          <label class="check" key={key}>
+            <input type="radio" name="action" checked={action === key} onChange={() => setAction(key)} />
+            {enforceActions[key]}
+          </label>
+        ))}
+      </div>
+      <MemberPicker members={members} value={from} onChange={setFrom} label={action === "takeover" ? "Conta" : "De quem"} />
+      {action === "transfer" && <MemberPicker members={members} value={to} onChange={setTo} label="Para quem" />}
+      {action === "takeover" ? (
+        <>
+          <label class="field">
+            <span>Novo único dono da conta</span>
+            <input value={newOwner} onInput={(e) => setNewOwner(e.currentTarget.value.trim())} />
+          </label>
+          <p class="fine">
+            Por padrão, o próprio banco. Todos os aparelhos do membro são removidos na hora; o membro não pode cancelar.
+            Para devolver a conta depois, use “Recuperar” com a passkey nova do membro.
+          </p>
+        </>
+      ) : (
+        <label class="field">
+          <span>Quantidade em {currency}</span>
+          <input inputMode="decimal" value={amount} onInput={(e) => setAmount(e.currentTarget.value)} />
+        </label>
+      )}
+      {action === "confiscate" && <p class="fine">As moedas confiscadas são destruídas: o total em circulação diminui.</p>}
+      <label class="field">
+        <span>Motivo (público)</span>
+        <textarea rows={2} maxLength={200} value={reason} onInput={(e) => setReason(e.currentTarget.value)} />
+      </label>
+      <button class="btn btn-primary" disabled={!ok}>
+        Preparar: {enforceActions[action].toLowerCase()}
       </button>
     </form>
   );
@@ -257,7 +362,7 @@ function Execute({ calls }: { calls: Call[] }) {
       createdAt: Date.now(),
       meta: {
         name: calls.map((c) => c.label).join("; "),
-        description: "Moeda da comunidade",
+        description: "Hidroreais",
         txBuilderVersion: "1.16.5",
         createdFromSafeAddress: deployment.bank,
       },
