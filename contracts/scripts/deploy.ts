@@ -1,0 +1,152 @@
+/**
+ * Deploys the community currency to Gnosis Chiado (10200) or Gnosis (100).
+ *
+ *   BANK_ADDRESS=0x... npx hardhat run scripts/deploy.ts --network chiado
+ *
+ * Env:
+ *   BANK_ADDRESS        central bank Safe (or, while testing, an EOA). Gets admin + MINTER_ROLE
+ *                       on the token and is the recovery guardian.
+ *   TOKEN_NAME/SYMBOL   default "Community Coin" / "COIN"
+ *   RECOVERY_DELAY      seconds, default 0 (instant recovery while testing)
+ *   ALLOWANCE           optional, tokens per member per epoch for the example AllowanceMinter
+ *   EPOCH_DAYS          default 7
+ *   EPOCH_CAP           tokens per epoch, default ALLOWANCE * 250
+ *
+ * Writes ../deployments/<chainId>.json, which the PWA and the server read.
+ */
+import { network } from "hardhat";
+import { readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { getAddress, isAddress, parseEther, type Address, type Hex } from "viem";
+
+const require = createRequire(import.meta.url);
+
+// Canonical addresses (deterministic deployments, same on every chain that has them).
+const ENTRY_POINT_V07 = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
+const SAFE_1_4_1 = {
+  safeSingleton: "0x41675C099F32341bf84BFc5382aF534df5C7461a",
+  safeProxyFactory: "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+  multiSend: "0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526",
+  multiSendCallOnly: "0x9641d764fc13c8B624c04430C7356C1C7C8102e2",
+} as const;
+// Official Safe module deployments (safe-modules-deployments). Present on Gnosis (100).
+const SAFE_MODULES = {
+  safe4337Module: "0x75cf11467937ce3F2f357CE24ffc3DBF8fD5c226", // v0.3.0
+  safeModuleSetup: "0x2dd68b007B46fBe91B9A7c3EDa5A7a1063cB5b47", // v0.3.0
+  webAuthnSharedSigner: "0x94a4F6affBd8975951142c3999aEAB7ecee555c2", // passkey v0.2.1
+  webAuthnSignerFactory: "0x1d31F259eE307358a26dFb23EB365939E8641195", // passkey v0.2.1
+  p256Verifier: "0xc2b78104907F722DABAc4C69f826a522B2754De4", // Daimo, passkey v0.2.1
+} as const;
+
+function artifact(path: string): { abi: unknown[]; bytecode: Hex } {
+  return require(path);
+}
+
+const { viem } = await network.create();
+const publicClient = await viem.getPublicClient();
+const [deployer] = await viem.getWalletClients();
+const chainId = await publicClient.getChainId();
+
+const bankEnv = process.env.BANK_ADDRESS;
+if (!bankEnv || !isAddress(bankEnv, { strict: false })) throw new Error("Set BANK_ADDRESS to the central bank Safe (or a test EOA)");
+const bank = getAddress(bankEnv);
+const name = process.env.TOKEN_NAME ?? "Community Coin";
+const symbol = process.env.TOKEN_SYMBOL ?? "COIN";
+const recoveryDelay = BigInt(process.env.RECOVERY_DELAY ?? "0");
+
+const hasCode = async (a: Address) => ((await publicClient.getCode({ address: a })) ?? "0x") !== "0x";
+
+console.log(`Chain ${chainId}, deployer ${deployer.account.address}, bank ${bank}`);
+
+// 1. Required infrastructure must already exist (skipped for a local dry run on 31337).
+const isLocal = chainId === 31337;
+for (const [label, addr] of Object.entries({ entryPoint: ENTRY_POINT_V07, ...SAFE_1_4_1 })) {
+  if (!isLocal && !(await hasCode(addr))) throw new Error(`${label} (${addr}) is not deployed on chain ${chainId}`);
+}
+
+// 2. Safe 4337 + passkey modules: reuse the official ones, deploy our own copies where missing.
+async function ensure(label: keyof typeof SAFE_MODULES, deploy: () => Promise<Address>): Promise<Address> {
+  const canonical = SAFE_MODULES[label];
+  if (await hasCode(canonical)) return canonical;
+  console.log(`  ${label} missing on this chain, deploying a copy…`);
+  return deploy();
+}
+async function deployArtifact(path: string, args: unknown[] = []): Promise<Address> {
+  const { abi, bytecode } = artifact(path);
+  const hash = await deployer.deployContract({ abi, bytecode, args } as never);
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (!receipt.contractAddress) throw new Error(`deploy of ${path} failed`);
+  return receipt.contractAddress;
+}
+
+const aa = {
+  entryPoint: ENTRY_POINT_V07,
+  ...SAFE_1_4_1,
+  safe4337Module: await ensure("safe4337Module", () =>
+    deployArtifact("@safe-global/safe-4337/build/artifacts/contracts/Safe4337Module.sol/Safe4337Module.json", [
+      ENTRY_POINT_V07,
+    ]),
+  ),
+  safeModuleSetup: await ensure("safeModuleSetup", () =>
+    deployArtifact("@safe-global/safe-4337/build/artifacts/contracts/SafeModuleSetup.sol/SafeModuleSetup.json"),
+  ),
+  webAuthnSharedSigner: await ensure("webAuthnSharedSigner", () =>
+    deployArtifact(
+      "@safe-global/safe-passkey/build/artifacts/contracts/4337/SafeWebAuthnSharedSigner.sol/SafeWebAuthnSharedSigner.json",
+    ),
+  ),
+  webAuthnSignerFactory: await ensure("webAuthnSignerFactory", () =>
+    deployArtifact(
+      "@safe-global/safe-passkey/build/artifacts/contracts/SafeWebAuthnSignerFactory.sol/SafeWebAuthnSignerFactory.json",
+    ),
+  ),
+  p256Verifier: await ensure("p256Verifier", () =>
+    deployArtifact(
+      "@safe-global/safe-passkey/build/artifacts/contracts/verifiers/FCLP256Verifier.sol/FCLP256Verifier.json",
+    ),
+  ),
+};
+
+// 3. Our contracts.
+const startBlock = await publicClient.getBlockNumber();
+const token = await viem.deployContract("CommunityToken", [name, symbol, bank]);
+console.log(`CommunityToken    ${token.address}`);
+const recovery = await viem.deployContract("RecoveryModule", [bank, recoveryDelay]);
+console.log(`RecoveryModule    ${recovery.address} (delay ${recoveryDelay}s)`);
+const directory = await viem.deployContract("MemberDirectory", []);
+console.log(`MemberDirectory   ${directory.address}`);
+
+let allowanceMinter: Address | undefined;
+if (process.env.ALLOWANCE) {
+  const allowance = parseEther(process.env.ALLOWANCE);
+  const epoch = BigInt(Number(process.env.EPOCH_DAYS ?? "7") * 86400);
+  const cap = process.env.EPOCH_CAP ? parseEther(process.env.EPOCH_CAP) : allowance * 250n;
+  const minter = await viem.deployContract("AllowanceMinter", [token.address, bank, allowance, epoch, cap]);
+  allowanceMinter = minter.address;
+  console.log(`AllowanceMinter   ${allowanceMinter}`);
+  console.log("  → the bank must call token.grantRole(MINTER_ROLE, AllowanceMinter) to activate it");
+}
+
+const out = {
+  chainId,
+  startBlock: Number(startBlock),
+  bank,
+  token: { address: token.address, name, symbol, decimals: 18 },
+  recoveryModule: recovery.address,
+  directory: directory.address,
+  allowanceMinter,
+  aa,
+};
+const file = new URL(`../../deployments/${chainId}.json`, import.meta.url);
+await writeFile(file, JSON.stringify(out, null, 2) + "\n");
+console.log(`\nWrote ${file.pathname}`);
+
+// Keep a copy of the ABIs next to the addresses for the app and server.
+const abis: Record<string, unknown> = {};
+for (const c of ["CommunityToken", "RecoveryModule", "MemberDirectory", "AllowanceMinter"]) {
+  const a = JSON.parse(
+    await readFile(new URL(`../artifacts/contracts/${c}.sol/${c}.json`, import.meta.url), "utf8"),
+  );
+  abis[c] = a.abi;
+}
+await writeFile(new URL("../../deployments/abis.json", import.meta.url), JSON.stringify(abis, null, 2) + "\n");

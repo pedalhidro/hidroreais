@@ -1,0 +1,529 @@
+/*
+  Moeda da comunidade — azulejo palette.
+  One bold element: the cobalt balance tile with a Portuguese-tile pattern. Everything else
+  stays quiet: paper background, hairline lists, plain sentence-case copy.
+*/
+:root {
+  --paper: #f6f8fc;
+  --ink: #13204f;
+  --muted: #4b5a85;
+  --cobalt: #2343a8;
+  --cobalt-deep: #1a3384;
+  --tile: #dce4f7;
+  --line: #c9d3ea;
+  --sun: #f2c230;
+  --red: #b3261e;
+  --green: #1d7a4a;
+  --radius: 14px;
+  --display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+a {
+  color: var(--cobalt);
+}
+
+:focus-visible {
+  outline: 3px solid var(--sun);
+  outline-offset: 2px;
+}
+
+h1,
+h2 {
+  font-family: var(--display);
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0;
+}
+h1 {
+  font-size: 1.6rem;
+}
+h2 {
+  font-size: 1.15rem;
+  margin-top: 1.75rem;
+}
+p {
+  margin: 0;
+}
+
+.screen {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.screen-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.back {
+  font-size: 2rem;
+  line-height: 1;
+  text-decoration: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  margin-left: -10px;
+}
+
+/* ---------------------------------------------------------------- the tile */
+.tile {
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  padding: 22px 22px 26px;
+  color: #fff;
+  background-color: var(--cobalt);
+  background-image:
+    radial-gradient(circle at 50% 50%, transparent 27%, rgba(255, 255, 255, 0.13) 28%, rgba(255, 255, 255, 0.13) 31%, transparent 32%),
+    conic-gradient(from 45deg at 50% 50%, rgba(255, 255, 255, 0.08) 0 25%, transparent 0 50%, rgba(255, 255, 255, 0.08) 0 75%, transparent 0),
+    radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.16) 0 9%, transparent 10%),
+    radial-gradient(circle at 100% 100%, rgba(255, 255, 255, 0.16) 0 9%, transparent 10%);
+  background-size: 64px 64px;
+  box-shadow: inset 0 0 0 6px var(--cobalt-deep);
+}
+.tile-who {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+.tile-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
+}
+.tile-amount {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.8rem, 15vw, 4.2rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 0 var(--cobalt-deep);
+}
+.tile-symbol {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 1.2rem;
+  color: var(--sun);
+}
+
+/* ---------------------------------------------------------------- buttons */
+.btn {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  min-height: 52px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  cursor: pointer;
+  text-align: center;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.btn-primary {
+  background: var(--cobalt);
+  color: #fff;
+}
+.btn-primary:active:not(:disabled) {
+  background: var(--cobalt-deep);
+}
+.btn-secondary {
+  background: var(--tile);
+  color: var(--ink);
+}
+.btn-quiet {
+  background: transparent;
+  color: var(--cobalt);
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+}
+.btn-link {
+  background: none;
+  color: var(--cobalt);
+  min-height: 44px;
+  padding: 8px 0;
+  text-decoration: underline;
+  font-weight: 400;
+  justify-content: flex-start;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.row > .btn {
+  flex: 1 1 140px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stack-tight {
+  gap: 8px;
+}
+
+/* ---------------------------------------------------------------- forms */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 700;
+}
+.field input,
+.field select,
+.field textarea {
+  font: inherit;
+  font-weight: 400;
+  color: var(--ink);
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-height: 50px;
+  width: 100%;
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--cobalt);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--tile);
+}
+.field-amount input {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 2.4rem;
+  padding: 8px 14px;
+  font-variant-numeric: tabular-nums;
+}
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.check input {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+}
+
+.fine {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.center {
+  text-align: center;
+}
+
+.notice {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--tile);
+  font-size: 0.95rem;
+}
+.notice-error {
+  background: #fbe9e7;
+  color: var(--red);
+}
+.notice-ok {
+  background: #e3f3ea;
+  color: var(--green);
+}
+
+.inline-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.alert {
+  border-radius: var(--radius);
+  padding: 16px;
+  background: #fbe9e7;
+  border: 2px solid var(--red);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.alert h2 {
+  margin: 0;
+  color: var(--red);
+}
+
+/* ---------------------------------------------------------------- lists */
+.activity ul,
+.people,
+.devices,
+.ledger,
+.history {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.activity li a,
+.ledger li a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+.activity .amount,
+.ledger .amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.activity li.in .amount {
+  color: var(--green);
+}
+.empty {
+  color: var(--muted);
+  padding: 12px 0;
+}
+
+.people li a,
+.people li button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: none;
+  text-align: left;
+  min-height: 56px;
+}
+.people-compact li button {
+  min-height: 44px;
+}
+.people li button.picked {
+  font-weight: 700;
+  color: var(--cobalt);
+}
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--tile);
+  color: var(--cobalt);
+  display: grid;
+  place-items: center;
+  font-family: var(--display);
+  font-weight: 800;
+}
+
+.devices li,
+.history li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  min-height: 52px;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+.links a {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------------------------------------------------------------- welcome + done */
+.welcome-hero {
+  padding: 24px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.coin-mark {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--cobalt);
+  color: var(--sun);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 1.1rem;
+  box-shadow:
+    inset 0 0 0 5px var(--cobalt-deep),
+    inset 0 0 0 9px var(--sun);
+}
+.welcome-hero h1 {
+  font-size: 2.1rem;
+}
+
+.done {
+  padding-top: 15vh;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+}
+.done-mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--green);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 2.2rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .done-mark {
+    animation: pop 360ms cubic-bezier(0.2, 1.4, 0.4, 1);
+  }
+  @keyframes pop {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- qr + scanner */
+.qr {
+  margin: 0 auto;
+  padding: 14px;
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+}
+.qr img {
+  display: block;
+  width: min(240px, 70vw);
+  height: auto;
+}
+.scanner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.scanner video {
+  width: 100%;
+  border-radius: 20px;
+  background: var(--ink);
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+.waiting::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sun);
+  margin-right: 8px;
+}
+
+/* ---------------------------------------------------------------- bank console */
+.tabs {
+  display: flex;
+  gap: 6px;
+  background: var(--tile);
+  padding: 4px;
+  border-radius: 999px;
+}
+.tab {
+  flex: 1;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.92rem;
+  min-height: 40px;
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tab-on {
+  background: #fff;
+  font-weight: 700;
+}
+.execute {
+  border-top: 2px solid var(--ink);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.execute ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+}
+.facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+}
