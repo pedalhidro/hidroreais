@@ -37,7 +37,9 @@ export const deployment: Deployment = found[1].default;
 
 export const serverUrl: string = (import.meta.env.VITE_SERVER_URL ?? "http://localhost:8787").replace(/\/$/, "");
 export const rpcUrl: string = import.meta.env.VITE_RPC_URL ?? chain.rpcUrls.default.http[0];
-export const explorerUrl = chain.blockExplorers?.default.url ?? "";
+// viem still lists blockscout.chiadochain.net for Chiado, which no longer serves transactions.
+const explorers: Record<number, string> = { 10200: "https://gnosis-chiado.blockscout.com" };
+export const explorerUrl = explorers[chainId] ?? chain.blockExplorers?.default.url ?? "";
 
 export const symbol = deployment.token.symbol;
 /** What amounts are shown in ("10 Hidroreais"). The symbol (PHR) is for wallets and the logo. */
