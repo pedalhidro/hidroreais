@@ -63,6 +63,19 @@ async function userOpGasPrice(id: RpcRequest["id"]): Promise<GasPriceResponse> {
   return { ...res, result: { slow: tier, standard: tier, fast: tier }, error: undefined };
 }
 
+// Pimlico estimates verification gas with a placeholder signature, before Face ID. Checking a
+// real passkey through a SafeWebAuthnSignerProxy (a linked or recovered device) costs more than
+// that estimate (~420k gas vs ~410k estimated): validation ran out of gas inside the Safe's
+// checkSignatures and the module reported "AA24 signature error". Unused verification gas is not
+// charged under EntryPoint 0.7, so the headroom costs nothing.
+const VERIFICATION_HEADROOM = 250_000n;
+function withVerificationHeadroom(res: { result?: { verificationGasLimit?: Hex } }) {
+  if (res.result?.verificationGasLimit) {
+    res.result.verificationGasLimit = toHex(BigInt(res.result.verificationGasLimit) + VERIFICATION_HEADROOM);
+  }
+  return res;
+}
+
 // Current gas price, to refuse operations that ask the paymaster for inflated fees.
 let gasPrice: { at: number; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint } | undefined;
 async function currentGasPrice() {
@@ -138,6 +151,9 @@ app.post("/rpc", async (c) => {
     try {
       if (PAYMASTER_METHODS.has(req.method)) return await sponsor(req);
       if (req.method === "pimlico_getUserOperationGasPrice") return await userOpGasPrice(req.id);
+      if (req.method === "eth_estimateUserOperationGas") {
+        return withVerificationHeadroom((await forward(req)) as { result?: { verificationGasLimit?: Hex } });
+      }
       if (req.method === "eth_sendUserOperation") {
         const [op, entryPoint] = (req.params ?? []) as [RpcUserOperation, Address];
         return { jsonrpc: "2.0", id: req.id, result: await sendUserOperation(op, entryPoint) };

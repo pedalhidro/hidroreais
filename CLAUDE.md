@@ -107,6 +107,11 @@ afterwards; it is only a local dry run.
   "Internal error from bundler" (its paymaster and gas estimation work). So the server
   computes fees from the node when the gas price call fails (`userOpGasPrice`) and submits
   operations itself (`bundler.ts`). Every upstream error is logged as `upstream <method>`.
+- Pimlico's gas estimate is too low for passkeys behind a `SafeWebAuthnSignerProxy` (linked
+  or recovered devices): validation ran out of gas and surfaced as "AA24 signature error"
+  even though the signature was valid. The server adds `VERIFICATION_HEADROOM` to
+  `verificationGasLimit` in `eth_estimateUserOperationGas` responses. If AA24 comes back,
+  replay the logged operation's signature before blaming the passkey.
 - The P-256 verifier config is the verifier address only (`p256Verifiers` in
   app/src/config.ts), with no RIP-7212 precompile flag. Keep the app and the server's
   `checkDeployment` in agreement.
